@@ -43,6 +43,17 @@ void main() {
 }
 ```
 
+> **Important:** Accessing `ApiService.instance` before calling `initialize()` throws a
+> `StateError`. Always call `initialize()` first.
+
+Use `ApiService.isInitialized` to guard conditional access:
+
+```dart
+if (ApiService.isInitialized) {
+  ApiService.instance.setAuthToken(token);
+}
+```
+
 ### NetworkConfig options
 
 | Parameter | Type | Default | Description |
@@ -148,6 +159,14 @@ ApiService.instance.setAppLocale('en');
 From that point on, every `ApiException.message` and connectivity error is
 returned in the selected language automatically.
 
+Call `removeAppLocale()` to go back to the default locale that was set in
+`NetworkConfig.defaultHeaders['Accept-Language']` at `initialize()` time
+(falls back to `'en'` if no locale was set there):
+
+```dart
+ApiService.instance.removeAppLocale();
+```
+
 ### Built-in languages
 
 | Code | Language |
@@ -166,6 +185,16 @@ NetworkLocale.addTranslations('fr', {
 });
 
 ApiService.instance.setAppLocale('fr');
+```
+
+### Remove custom translations
+
+```dart
+// Remove only French overrides
+NetworkLocale.clearCustomTranslations('fr');
+
+// Remove all custom translations across every locale
+NetworkLocale.clearCustomTranslations();
 ```
 
 ---

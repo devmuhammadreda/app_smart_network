@@ -42,6 +42,23 @@ class NetworkLocale {
     };
   }
 
+  /// Removes custom translations so lookups fall back to built-in messages.
+  ///
+  /// Pass a [locale] to clear only that language, or omit it to reset all
+  /// custom translations at once.
+  ///
+  /// ```dart
+  /// NetworkLocale.clearCustomTranslations('fr'); // clear French only
+  /// NetworkLocale.clearCustomTranslations();     // clear everything
+  /// ```
+  static void clearCustomTranslations([String? locale]) {
+    if (locale != null) {
+      _custom.remove(locale);
+    } else {
+      _custom.clear();
+    }
+  }
+
   // ── Public lookup helpers ─────────────────────────────────────────────────
 
   /// Returns the translated message for [key], falling back to English,

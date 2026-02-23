@@ -5,7 +5,11 @@ void main() {
   // ── NetworkLocale ──────────────────────────────────────────────────────────
 
   group('NetworkLocale', () {
-    setUp(() => NetworkLocale.setLocale('en'));
+    setUp(() {
+      NetworkLocale.setLocale('en');
+      // Start every test from a clean custom-translation state.
+      NetworkLocale.clearCustomTranslations();
+    });
 
     test('defaults to English', () {
       expect(NetworkLocale.current, 'en');
@@ -46,6 +50,8 @@ void main() {
       expect(msg, contains('499'));
     });
 
+    // ── custom translations ──────────────────────────────────────────────────
+
     test('custom translations override built-ins', () {
       NetworkLocale.addTranslations('en', {
         'NoInternetConnection': 'Custom offline message.',
@@ -54,10 +60,35 @@ void main() {
         NetworkLocale.getErrorMessage('NoInternetConnection'),
         'Custom offline message.',
       );
-      // Restore
-      NetworkLocale.addTranslations('en', {
-        'NoInternetConnection': 'No internet connection.',
-      });
+    });
+
+    test('clearCustomTranslations(locale) removes only that locale', () {
+      NetworkLocale.addTranslations('en', {'NoInternetConnection': 'Custom.'});
+      NetworkLocale.addTranslations('ar', {'NoInternetConnection': 'مخصص.'});
+
+      NetworkLocale.clearCustomTranslations('en');
+
+      // English custom is gone — falls back to built-in.
+      expect(
+        NetworkLocale.getErrorMessage('NoInternetConnection'),
+        'No internet connection.',
+      );
+
+      // Arabic custom is still present.
+      NetworkLocale.setLocale('ar');
+      expect(NetworkLocale.getErrorMessage('NoInternetConnection'), 'مخصص.');
+    });
+
+    test('clearCustomTranslations() removes all locales', () {
+      NetworkLocale.addTranslations('en', {'NoInternetConnection': 'Custom.'});
+      NetworkLocale.addTranslations('fr', {'NoInternetConnection': 'Perso.'});
+
+      NetworkLocale.clearCustomTranslations();
+
+      expect(
+        NetworkLocale.getErrorMessage('NoInternetConnection'),
+        'No internet connection.',
+      );
     });
 
     test('custom translations for new locale fall back to English for missing keys', () {
@@ -65,15 +96,80 @@ void main() {
         'NoInternetConnection': 'Pas de connexion.',
       });
       NetworkLocale.setLocale('fr');
+
       expect(
         NetworkLocale.getErrorMessage('NoInternetConnection'),
         'Pas de connexion.',
       );
-      // Key not in 'fr' → falls back to English
+      // Key not in 'fr' → falls back to English built-in.
       expect(
         NetworkLocale.getErrorMessage('RequestCancelled'),
         'Request was cancelled.',
       );
+      // Key missing everywhere → returns the key itself.
+      expect(
+        NetworkLocale.getErrorMessage('NonexistentKey'),
+        'NonexistentKey',
+      );
+    });
+  });
+
+  // ── ApiService ─────────────────────────────────────────────────────────────
+
+  group('ApiService', () {
+    tearDown(() {
+      // Clean up any instance created during tests.
+      if (ApiService.isInitialized) ApiService.instance.dispose();
+    });
+
+    test('instance throws StateError before initialize()', () {
+      expect(() => ApiService.instance, throwsStateError);
+    });
+
+    test('isInitialized is false before initialize()', () {
+      expect(ApiService.isInitialized, isFalse);
+    });
+
+    test('isInitialized is true after initialize()', () {
+      ApiService.initialize(const NetworkConfig(baseUrl: 'https://example.com'));
+      expect(ApiService.isInitialized, isTrue);
+    });
+
+    test('instance returns the same object after initialize()', () {
+      ApiService.initialize(const NetworkConfig(baseUrl: 'https://example.com'));
+      expect(ApiService.instance, same(ApiService.instance));
+    });
+
+    test('dispose() resets isInitialized to false', () {
+      ApiService.initialize(const NetworkConfig(baseUrl: 'https://example.com'));
+      ApiService.instance.dispose();
+      expect(ApiService.isInitialized, isFalse);
+    });
+
+    test('initialize() with Accept-Language header sets NetworkLocale', () {
+      ApiService.initialize(const NetworkConfig(
+        baseUrl: 'https://example.com',
+        defaultHeaders: {'Accept-Language': 'ar'},
+      ));
+      expect(NetworkLocale.current, 'ar');
+      ApiService.instance.dispose();
+      NetworkLocale.setLocale('en'); // restore
+    });
+
+    test('removeAppLocale() restores default locale, not always en', () {
+      ApiService.initialize(const NetworkConfig(
+        baseUrl: 'https://example.com',
+        defaultHeaders: {'Accept-Language': 'ar'},
+      ));
+      ApiService.instance.setAppLocale('fr');
+      expect(NetworkLocale.current, 'fr');
+
+      ApiService.instance.removeAppLocale();
+      // Should restore to 'ar' (the initialize default), not 'en'.
+      expect(NetworkLocale.current, 'ar');
+
+      ApiService.instance.dispose();
+      NetworkLocale.setLocale('en'); // restore
     });
   });
 

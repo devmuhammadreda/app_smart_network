@@ -38,6 +38,9 @@ export 'services/request_service.dart' show HttpMethod;
 class ApiService {
   static ApiService? _instance;
 
+  // Stores the locale set at initialize() so removeAppLocale() can restore it.
+  static String _defaultLocale = 'en';
+
   late HttpClient _httpClient;
   late RequestService _requestService;
   late DownloadRequestService _downloadService;
@@ -45,24 +48,38 @@ class ApiService {
 
   // ── Singleton access ──────────────────────────────────────────────────────
 
-  /// Returns the singleton, creating it with a default (empty baseUrl)
-  /// config if [initialize] was never called.
-  static ApiService get instance => _instance ??= ApiService._create();
+  /// Returns the singleton.
+  ///
+  /// Throws [StateError] if [initialize] has not been called yet.
+  static ApiService get instance {
+    if (_instance == null) {
+      throw StateError(
+        'ApiService is not initialized. '
+        'Call ApiService.initialize(NetworkConfig(...)) in main() before first use.',
+      );
+    }
+    return _instance!;
+  }
+
+  /// Whether [initialize] has already been called.
+  static bool get isInitialized => _instance != null;
 
   /// Initialises (or re-initialises) the singleton with [config].
   ///
   /// Call this once in `main()` before making any requests.
   static void initialize(NetworkConfig config) {
     _instance?.dispose();
-    NetworkLocale.setLocale(
-      config.defaultHeaders?['Accept-Language'] ?? 'en',
-    );
-    _instance = ApiService._create(config: config);
+    _defaultLocale = config.defaultHeaders?['Accept-Language']
+            ?.split(RegExp(r'[-_]'))
+            .first
+            .toLowerCase() ??
+        'en';
+    NetworkLocale.setLocale(_defaultLocale);
+    _instance = ApiService._create(config);
   }
 
-  ApiService._create({NetworkConfig? config}) {
-    final cfg = config ?? const NetworkConfig(baseUrl: '');
-    _httpClient = HttpClient(cfg);
+  ApiService._create(NetworkConfig config) {
+    _httpClient = HttpClient(config);
     _requestService = RequestService(_httpClient);
     _downloadService = DownloadRequestService(_httpClient);
     _uploadService = UploadRequestService(_httpClient);
@@ -114,7 +131,8 @@ class ApiService {
 
   void removeAppLocale() {
     _httpClient.dio.options.headers.remove('Accept-Language');
-    NetworkLocale.setLocale('en');
+    // Restore to the locale that was active at initialize(), not always 'en'.
+    NetworkLocale.setLocale(_defaultLocale);
   }
 
   // ── Request ───────────────────────────────────────────────────────────────

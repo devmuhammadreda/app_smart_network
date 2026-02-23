@@ -43,33 +43,20 @@ mixin NetworkServiceMixin {
 
   /// Returns request [Options] with an extended receive-timeout when the
   /// device is on a mobile network. User-provided values take precedence.
+  ///
+  /// Mutates [userOptions] in-place (or creates a new [Options] if null)
+  /// so that all caller-supplied fields are preserved.
   Options withMobileTimeouts(
     Options? userOptions,
     List<ConnectivityResult> connectivityResult, {
     Duration mobileReceiveTimeout = const Duration(milliseconds: 40000),
   }) {
-    if (!connectivityResult.contains(ConnectivityResult.mobile)) {
-      return userOptions ?? Options();
+    final opts = userOptions ?? Options();
+    if (connectivityResult.contains(ConnectivityResult.mobile)) {
+      // Only apply when the caller hasn't already set a custom timeout.
+      opts.receiveTimeout ??= mobileReceiveTimeout;
     }
-    final base = userOptions;
-    return Options(
-      method: base?.method,
-      sendTimeout: base?.sendTimeout,
-      receiveTimeout: base?.receiveTimeout ?? mobileReceiveTimeout,
-      extra: base?.extra,
-      headers: base?.headers,
-      preserveHeaderCase: base?.preserveHeaderCase,
-      responseType: base?.responseType,
-      contentType: base?.contentType,
-      validateStatus: base?.validateStatus,
-      receiveDataWhenStatusError: base?.receiveDataWhenStatusError,
-      followRedirects: base?.followRedirects,
-      maxRedirects: base?.maxRedirects,
-      persistentConnection: base?.persistentConnection,
-      requestEncoder: base?.requestEncoder,
-      responseDecoder: base?.responseDecoder,
-      listFormat: base?.listFormat,
-    );
+    return opts;
   }
 
   /// Resolves the full URL. When [baseUrl] is non-null it is prepended to

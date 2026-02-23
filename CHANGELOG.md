@@ -1,3 +1,23 @@
+## 1.0.1
+
+### Bug fixes
+
+- **`ApiService.instance`** now throws a `StateError` instead of silently
+  creating a broken client when `initialize()` has not been called yet.
+- **`ApiService.isInitialized`** getter added — use it to safely check
+  whether `initialize()` has been called before accessing `instance`.
+- **`withMobileTimeouts`** no longer discards user-supplied `Options` fields.
+  It now mutates the existing object in-place, only setting `receiveTimeout`
+  when the caller has not already provided one.
+- **`removeAppLocale()`** now restores the locale that was active at
+  `initialize()` time (from `NetworkConfig.defaultHeaders['Accept-Language']`)
+  instead of always falling back to `'en'`.
+- **`NetworkLocale.clearCustomTranslations([locale])`** added — removes custom
+  translations for a specific locale, or for all locales when called without
+  an argument.
+
+---
+
 ## 1.0.0
 
 Initial stable release.
