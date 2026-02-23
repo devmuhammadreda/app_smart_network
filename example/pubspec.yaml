@@ -1,0 +1,17 @@
+name: app_smart_network_example
+description: Example Flutter app demonstrating app_smart_network usage.
+publish_to: none
+version: 1.0.0
+
+environment:
+  sdk: ^3.0.0
+  flutter: ">=3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  app_smart_network:
+    path: ../
+
+flutter:
+  uses-material-design: true
