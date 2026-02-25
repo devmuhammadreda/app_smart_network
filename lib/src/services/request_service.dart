@@ -32,15 +32,15 @@ class RequestService with NetworkServiceMixin {
     ProgressCallback? onReceiveProgress,
     String? baseUrl,
   }) async {
-    final conn = await ensureConnected();
-    final opts = withMobileTimeouts(
-      options,
-      conn,
-      mobileReceiveTimeout: const Duration(milliseconds: 30000),
-    );
-    final url = resolveUrl(path, baseUrl);
-
     try {
+      final conn = await ensureConnected();
+      final opts = withMobileTimeouts(
+        options,
+        conn,
+        mobileReceiveTimeout: const Duration(milliseconds: 30000),
+      );
+      final url = resolveUrl(path, baseUrl);
+
       switch (method) {
         case HttpMethod.get:
           return await _client.dio.get<T>(

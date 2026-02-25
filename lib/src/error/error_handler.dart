@@ -14,6 +14,7 @@ class ErrorHandler {
 
   /// Converts any thrown [error] into an [ApiException].
   static Exception handleError(dynamic error) {
+    if (error is ApiException) return error;
     if (error is DioException) return _handleDioError(error);
     return ApiException(
       NetworkLocale.getErrorMessage('UnexpectedError'),
@@ -78,8 +79,7 @@ class ErrorHandler {
     final responseData = error.response?.data;
     final extracted = _extractErrorData(responseData);
     final message =
-        extracted['message'] ??
-        NetworkLocale.getStatusMessage(statusCode);
+        extracted['message'] ?? NetworkLocale.getStatusMessage(statusCode);
     final apiErrorCode = extracted['code'];
 
     return ApiException(
@@ -110,7 +110,8 @@ class ErrorHandler {
       );
     }
     return ApiException(
-      error.error?.toString() ?? NetworkLocale.getErrorMessage('UnexpectedError'),
+      error.error?.toString() ??
+          NetworkLocale.getErrorMessage('UnexpectedError'),
       0,
       errorType: 'UnknownError',
       originalError: error,
@@ -123,14 +124,12 @@ class ErrorHandler {
     if (responseData == null) return result;
 
     if (responseData is Map<String, dynamic>) {
-      result['message'] =
-          responseData['message']?.toString() ??
+      result['message'] = responseData['message']?.toString() ??
           responseData['error']?.toString() ??
           responseData['detail']?.toString() ??
           responseData['msg']?.toString();
 
-      result['code'] =
-          responseData['code']?.toString() ??
+      result['code'] = responseData['code']?.toString() ??
           responseData['errorCode']?.toString() ??
           responseData['error_code']?.toString();
     } else if (responseData is String) {
