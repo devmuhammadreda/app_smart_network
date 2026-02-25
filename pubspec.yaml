@@ -1,6 +1,6 @@
 name: app_smart_network
 description: "A smart Flutter network package with built-in error handling, retry logic, and multilingual error messages (en/ar)."
-version: 1.0.1
+version: 1.0.2
 repository: https://github.com/devmuhammadreda/app_smart_network
 homepage: https://github.com/devmuhammadreda/app_smart_network
 
@@ -11,11 +11,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  dio: ^5.0.0
-  connectivity_plus: ^6.0.0
-  equatable: ^2.0.5
-  pretty_dio_logger: ^1.3.1
-  dio_smart_retry: ^6.0.0
+  dio: ^5.9.1
+  connectivity_plus: ^7.0.0
+  equatable: ^2.0.8
+  pretty_dio_logger: ^1.4.0
+  dio_smart_retry: ^7.0.1
 
 dev_dependencies:
   flutter_test:

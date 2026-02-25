@@ -36,19 +36,3 @@ class ServerFailure extends Failure {
     );
   }
 }
-
-class CacheFailure extends Failure {
-  const CacheFailure({
-    required super.message,
-    required super.code,
-    required super.apiErrorCode,
-  });
-
-  factory CacheFailure.fromException(CacheException exception) {
-    return CacheFailure(
-      message: exception.message,
-      apiErrorCode: exception.apiErrorCode,
-      code: exception.code,
-    );
-  }
-}

@@ -1,3 +1,19 @@
+## 1.0.2
+
+### Bug fixes
+
+- **`ErrorHandler.handleError`** now passes an `ApiException` through unchanged
+  instead of re-wrapping it as a generic `'UnexpectedError'` (status 0). This
+  prevented the real error type, status code, and message from reaching callers
+  whenever an `ApiException` entered the catch block (e.g. thrown by a custom
+  interceptor).
+- **`RequestService.execute`** — `ensureConnected()`, `withMobileTimeouts()`,
+  and `resolveUrl()` are now inside the single `try/catch` block, so every
+  error type (connectivity, timeout, bad response, certificate, cancel) flows
+  through `ErrorHandler` via one consistent code path.
+
+---
+
 ## 1.0.1
 
 ### Bug fixes
