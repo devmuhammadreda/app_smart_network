@@ -91,7 +91,9 @@ void main() {
       );
     });
 
-    test('custom translations for new locale fall back to English for missing keys', () {
+    test(
+        'custom translations for new locale fall back to English for missing keys',
+        () {
       NetworkLocale.addTranslations('fr', {
         'NoInternetConnection': 'Pas de connexion.',
       });
@@ -131,17 +133,20 @@ void main() {
     });
 
     test('isInitialized is true after initialize()', () {
-      ApiService.initialize(const NetworkConfig(baseUrl: 'https://example.com'));
+      ApiService.initialize(
+          const NetworkConfig(baseUrl: 'https://example.com'));
       expect(ApiService.isInitialized, isTrue);
     });
 
     test('instance returns the same object after initialize()', () {
-      ApiService.initialize(const NetworkConfig(baseUrl: 'https://example.com'));
+      ApiService.initialize(
+          const NetworkConfig(baseUrl: 'https://example.com'));
       expect(ApiService.instance, same(ApiService.instance));
     });
 
     test('dispose() resets isInitialized to false', () {
-      ApiService.initialize(const NetworkConfig(baseUrl: 'https://example.com'));
+      ApiService.initialize(
+          const NetworkConfig(baseUrl: 'https://example.com'));
       ApiService.instance.dispose();
       expect(ApiService.isInitialized, isFalse);
     });
@@ -198,7 +203,9 @@ void main() {
       const e = ApiException(
         'msg',
         422,
-        responseData: {'errors': ['field required']},
+        responseData: {
+          'errors': ['field required']
+        },
       );
       expect(e.getResponseField<List>('errors'), ['field required']);
       expect(e.getResponseField<String>('missing'), isNull);
@@ -207,28 +214,6 @@ void main() {
     test('toString includes apiErrorCode when present', () {
       const e = ApiException('Bad', 400, apiErrorCode: 'UserExists');
       expect(e.toString(), contains('Code: UserExists'));
-    });
-  });
-
-  // ── Failures ───────────────────────────────────────────────────────────────
-
-  group('ServerFailure', () {
-    test('fromException maps fields correctly', () {
-      const exception = ApiException(
-        'Not found',
-        404,
-        apiErrorCode: 'ResourceMissing',
-      );
-      final failure = ServerFailure.fromException(exception);
-      expect(failure.message, 'Not found');
-      expect(failure.code, 404);
-      expect(failure.apiErrorCode, 'ResourceMissing');
-    });
-
-    test('equality via Equatable', () {
-      const a = ServerFailure(message: 'err', code: 500, apiErrorCode: 'E');
-      const b = ServerFailure(message: 'err', code: 500, apiErrorCode: 'E');
-      expect(a, equals(b));
     });
   });
 }

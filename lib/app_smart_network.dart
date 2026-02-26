@@ -19,7 +19,6 @@ export 'src/i18n/network_locale.dart';
 // Errors
 export 'src/error/error_handler.dart';
 export 'src/error/exceptions.dart';
-export 'src/error/failures.dart';
 
 // Re-export frequently used Dio types so consumers don't need a direct
 // dependency on `dio` for common operations.
