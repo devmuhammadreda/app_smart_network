@@ -1,3 +1,32 @@
+## 1.0.3
+
+### Breaking changes
+
+- **`ServerFailure` and `CacheFailure` removed** — `failures.dart` and its
+  public exports have been deleted. The `Failure` abstraction was out of scope
+  for a network package; it leaked domain-layer concerns into the library and
+  forced an unnecessary `equatable` dependency on consumers.
+  - **Migration**: catch `ApiException` directly in your repository layer, or
+    define your own `Failure` types and map from `ApiException` there.
+
+    ```dart
+    // before
+    } on ApiException catch (e) {
+      return Left(ServerFailure.fromException(e));
+    }
+
+    // after – option A: catch ApiException directly
+    } on ApiException catch (e) {
+      return Left(MyServerFailure(e.message, e.statusCode));
+    }
+    ```
+
+- **`equatable` dependency removed** — the package no longer depends on
+  `equatable`. Remove it from your own `pubspec.yaml` if you were relying on
+  the transitive export.
+
+---
+
 ## 1.0.2
 
 ### Bug fixes

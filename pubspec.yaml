@@ -1,6 +1,6 @@
 name: app_smart_network
 description: "A smart Flutter network package with built-in error handling, retry logic, and multilingual error messages (en/ar)."
-version: 1.0.2
+version: 1.0.3
 repository: https://github.com/devmuhammadreda/app_smart_network
 homepage: https://github.com/devmuhammadreda/app_smart_network
 

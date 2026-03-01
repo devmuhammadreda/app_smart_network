@@ -17,7 +17,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  app_smart_network: ^1.0.0
+  app_smart_network: ^1.0.3
 ```
 
 ---
@@ -230,7 +230,10 @@ try {
 }
 ```
 
-### Domain layer – convert to Failure
+### Domain layer – map to your own Failure type
+
+`ServerFailure` / `CacheFailure` were removed in `1.0.3`. Define your own
+`Failure` types and map from `ApiException` in the repository layer:
 
 ```dart
 // In your repository
@@ -242,7 +245,7 @@ Future<Either<Failure, UserModel>> getUser() async {
     );
     return Right(UserModel.fromJson(response.data!));
   } on ApiException catch (e) {
-    return Left(ServerFailure.fromException(e));
+    return Left(ServerFailure(e.message, statusCode: e.statusCode));
   }
 }
 ```
@@ -348,4 +351,3 @@ locale-aware messages, EN ↔ AR language toggle, and a 404 error demo.
 | [connectivity_plus](https://pub.dev/packages/connectivity_plus) | Network state |
 | [dio_smart_retry](https://pub.dev/packages/dio_smart_retry) | Retry interceptor |
 | [pretty_dio_logger](https://pub.dev/packages/pretty_dio_logger) | Debug logging |
-| [equatable](https://pub.dev/packages/equatable) | Failure value equality |
