@@ -3,6 +3,11 @@
 /// - Connectivity check before every request
 /// - Extended receive-timeout on mobile networks
 /// - Built-in locale-aware error messages (English & Arabic)
+/// - Custom error body parsing (v1.1.0)
+/// - Automatic token refresh on 401 (v1.1.0)
+/// - Request / response hooks (v1.1.0)
+/// - Request deduplication (v1.1.0)
+/// - Typed validation errors (v1.1.0)
 /// - Isolated upload / download services
 library;
 
@@ -30,4 +35,5 @@ export 'package:dio/dio.dart'
         Headers,
         ProgressCallback,
         FormData,
-        MultipartFile;
+        MultipartFile,
+        RequestOptions;

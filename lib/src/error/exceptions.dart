@@ -2,6 +2,18 @@
 // EXCEPTIONS
 // ============================================================================
 
+/// A typed, immutable value representing a single field-level validation
+/// failure returned by the server (typically in a 422 response).
+class ValidationError {
+  final String field;
+  final String message;
+
+  const ValidationError({required this.field, required this.message});
+
+  @override
+  String toString() => 'ValidationError(field: $field, message: $message)';
+}
+
 /// Thrown for any network/HTTP error.
 class ApiException implements Exception {
   final String message;
@@ -15,6 +27,9 @@ class ApiException implements Exception {
   /// Full response body, stored for debugging.
   final Map<String, dynamic>? responseData;
 
+  /// Typed field-level validation errors (non-null; empty when not applicable).
+  final List<ValidationError> validationErrors;
+
   const ApiException(
     this.message,
     this.statusCode, {
@@ -22,6 +37,7 @@ class ApiException implements Exception {
     this.errorType,
     this.apiErrorCode,
     this.responseData,
+    this.validationErrors = const [],
   });
 
   @override

@@ -6,6 +6,11 @@ A smart Flutter network package built on [Dio](https://pub.dev/packages/dio) wit
 - **Connectivity guard** – checks internet before every request; throws a clear offline error
 - **Mobile timeout** – extends receive-timeout automatically on cellular networks
 - **Locale-aware errors** – all error messages respect the active language (built-in **English & Arabic**, extensible)
+- **Flexible error body parsing** – plug in a custom parser for any backend error format *(v1.1.0)*
+- **Automatic token refresh** – silent 401 → refresh → retry cycle *(v1.1.0)*
+- **Request / response hooks** – ordered middleware pipelines *(v1.1.0)*
+- **Request deduplication** – concurrent identical requests share one network call *(v1.1.0)*
+- **Typed validation errors** – `ApiException.validationErrors` is always non-null *(v1.1.0)*
 - **Separate upload / download services** – progress callbacks included
 - **Zero context dependency** – no `BuildContext` needed for error messages
 
@@ -17,24 +22,44 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  app_smart_network: ^1.0.3
+  app_smart_network: ^1.1.0
 ```
+
+---
+
+## Migration from v1.0.3
+
+`ApiService` is now a `@deprecated` typedef alias. Replace every occurrence
+with `AppSmartNetworkService`:
+
+```dart
+// Before (v1.0.3)
+ApiService.initialize(config);
+final api = ApiService.instance;
+
+// After (v1.1.0)
+AppSmartNetworkService.initialize(config);
+final api = AppSmartNetworkService.instance;
+```
+
+`ApiService` will be **removed** in v2.0.0. All other existing code compiles
+unchanged — v1.1.0 is fully backward-compatible.
 
 ---
 
 ## Setup
 
-Call `ApiService.initialize()` **once** in `main()` before `runApp()`:
+Call `AppSmartNetworkService.initialize()` **once** in `main()` before `runApp()`:
 
 ```dart
 void main() {
-  ApiService.initialize(
+  AppSmartNetworkService.initialize(
     NetworkConfig(
       baseUrl: 'https://api.example.com',
 
       // Called when the server returns HTTP 401
       onUnauthorized: () {
-        ApiService.instance.removeAuthToken();
+        AppSmartNetworkService.instance.removeAuthToken();
         // navigate to login
       },
     ),
@@ -43,14 +68,14 @@ void main() {
 }
 ```
 
-> **Important:** Accessing `ApiService.instance` before calling `initialize()` throws a
+> **Important:** Accessing `AppSmartNetworkService.instance` before calling `initialize()` throws a
 > `StateError`. Always call `initialize()` first.
 
-Use `ApiService.isInitialized` to guard conditional access:
+Use `AppSmartNetworkService.isInitialized` to guard conditional access:
 
 ```dart
-if (ApiService.isInitialized) {
-  ApiService.instance.setAuthToken(token);
+if (AppSmartNetworkService.isInitialized) {
+  AppSmartNetworkService.instance.setAuthToken(token);
 }
 ```
 
@@ -63,14 +88,19 @@ if (ApiService.isInitialized) {
 | `receiveTimeout` | `Duration` | 30 s | Response timeout |
 | `defaultHeaders` | `Map<String, String>?` | `null` | Extra headers added to every request |
 | `allowBadCertificate` | `bool` | `false` | Bypass SSL validation (**debug only**) |
-| `onUnauthorized` | `OnUnauthorizedCallback?` | `null` | Invoked on HTTP 401 |
+| `onUnauthorized` | `OnUnauthorizedCallback?` | `null` | Invoked on HTTP 401 when refresh is not configured or fails |
+| `errorBodyParser` | `ErrorBodyParser?` | `null` | Custom parser for error response bodies *(v1.1.0)* |
+| `tokenRefresher` | `TokenRefreshCallback?` | `null` | Refresh token callback; triggers on 401 *(v1.1.0)* |
+| `refreshEndpointPredicate` | `RefreshEndpointPredicate?` | `null` | Identifies the refresh endpoint to prevent loops *(v1.1.0)* |
+| `requestHooks` | `List<RequestHook>` | `[]` | Ordered request middleware pipeline *(v1.1.0)* |
+| `responseHooks` | `List<ResponseHook>` | `[]` | Ordered response middleware pipeline *(v1.1.0)* |
 
 ---
 
 ## Making requests
 
 ```dart
-final api = ApiService.instance;
+final api = AppSmartNetworkService.instance;
 
 // GET
 final response = await api.request<Map<String, dynamic>>(
@@ -127,16 +157,54 @@ final response = await api.request<dynamic>(
 );
 ```
 
+### Request deduplication *(v1.1.0)*
+
+```dart
+// Safe to call from multiple widgets simultaneously — only one HTTP request is sent
+final response = await api.request<Map<String, dynamic>>(
+  HttpMethod.get,
+  '/users/me',
+  deduplicate: true,
+);
+```
+
 ---
 
 ## Auth token
 
 ```dart
 // Set after login
-ApiService.instance.setAuthToken(token);
+AppSmartNetworkService.instance.setAuthToken(token);
 
 // Remove on logout
-ApiService.instance.removeAuthToken();
+AppSmartNetworkService.instance.removeAuthToken();
+```
+
+### Automatic token refresh on 401 *(v1.1.0)*
+
+```dart
+AppSmartNetworkService.initialize(
+  NetworkConfig(
+    baseUrl: 'https://api.example.com',
+    tokenRefresher: () async {
+      // Call your refresh endpoint directly
+      try {
+        final res = await Dio().post('/auth/refresh',
+            data: {'refreshToken': await storage.read('refreshToken')});
+        final newToken = res.data['accessToken'] as String;
+        await storage.write('accessToken', newToken);
+        return newToken; // success
+      } catch (_) {
+        return null; // signals failure → onUnauthorized is called
+      }
+    },
+    refreshEndpointPredicate: (url) => url.contains('/auth/refresh'),
+    onUnauthorized: () {
+      AppSmartNetworkService.instance.removeAuthToken();
+      // navigate to login
+    },
+  ),
+);
 ```
 
 ---
@@ -150,10 +218,10 @@ Call `setAppLocale()` whenever the user changes language. It:
 
 ```dart
 // Switch to Arabic
-ApiService.instance.setAppLocale('ar');
+AppSmartNetworkService.instance.setAppLocale('ar');
 
 // Back to English
-ApiService.instance.setAppLocale('en');
+AppSmartNetworkService.instance.setAppLocale('en');
 ```
 
 From that point on, every `ApiException.message` and connectivity error is
@@ -164,7 +232,7 @@ Call `removeAppLocale()` to go back to the default locale that was set in
 (falls back to `'en'` if no locale was set there):
 
 ```dart
-ApiService.instance.removeAppLocale();
+AppSmartNetworkService.instance.removeAppLocale();
 ```
 
 ### Built-in languages
@@ -184,7 +252,7 @@ NetworkLocale.addTranslations('fr', {
   // ... add only the keys you need; missing keys fall back to English
 });
 
-ApiService.instance.setAppLocale('fr');
+AppSmartNetworkService.instance.setAppLocale('fr');
 ```
 
 ### Remove custom translations
@@ -225,9 +293,33 @@ try {
   // Check a custom server error code
   if (e.hasApiErrorCode('UserNotActive')) { /* … */ }
 
-  // Read a field from the raw response body
-  final errors = e.getResponseField<List>('errors');
+  // Typed validation errors (v1.1.0) — always non-null, no casting needed
+  for (final error in e.validationErrors) {
+    print('${error.field}: ${error.message}');
+  }
 }
+```
+
+### Custom error body parser *(v1.1.0)*
+
+```dart
+AppSmartNetworkService.initialize(
+  NetworkConfig(
+    baseUrl: 'https://api.example.com',
+    errorBodyParser: (body, statusCode) {
+      if (body is! Map<String, dynamic>) return null;
+      final error = body['error'];
+      if (error is Map<String, dynamic>) {
+        return (
+          message: error['detail']?.toString(),
+          apiErrorCode: error['code']?.toString(),
+          validationErrors: const [],
+        );
+      }
+      return null; // fall back to built-in extraction
+    },
+  ),
+);
 ```
 
 ### Domain layer – map to your own Failure type
@@ -248,6 +340,34 @@ Future<Either<Failure, UserModel>> getUser() async {
     return Left(ServerFailure(e.message, statusCode: e.statusCode));
   }
 }
+```
+
+---
+
+## Request / response hooks *(v1.1.0)*
+
+```dart
+AppSmartNetworkService.initialize(
+  NetworkConfig(
+    baseUrl: 'https://api.example.com',
+    requestHooks: [
+      // Add an HMAC signature header
+      (options) {
+        options.headers['X-Signature'] = HmacSigner.sign(options.path);
+        return options;
+      },
+    ],
+    responseHooks: [
+      // Unwrap {"data": {...}} envelope
+      (response) {
+        if (response.data is Map && response.data['data'] != null) {
+          return response.copyWith(data: response.data['data']);
+        }
+        return response;
+      },
+    ],
+  ),
+);
 ```
 
 ---
@@ -287,7 +407,7 @@ await api.download(
 Change settings at runtime without reinitialising:
 
 ```dart
-ApiService.instance.configure(
+AppSmartNetworkService.instance.configure(
   baseUrl: 'https://staging.example.com',
   connectTimeoutMs: 15000,
   receiveTimeoutMs: 15000,
@@ -301,7 +421,7 @@ ApiService.instance.configure(
 
 ```dart
 class UserRemoteDatasource {
-  final ApiService _api = ApiService.instance;
+  final AppSmartNetworkService _api = AppSmartNetworkService.instance;
 
   Future<UserModel> getProfile() async {
     // Set locale from cache before request

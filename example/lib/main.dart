@@ -10,13 +10,13 @@ import 'src/pages/home_page.dart';
 void main() {
   // ① Initialize the package once before runApp().
   //    Pass your base URL and any global config here.
-  ApiService.initialize(
+  AppSmartNetworkService.initialize(
     NetworkConfig(
       baseUrl: 'https://jsonplaceholder.typicode.com',
 
       // Called automatically when the server returns HTTP 401.
       onUnauthorized: () {
-        ApiService.instance.removeAuthToken();
+        AppSmartNetworkService.instance.removeAuthToken();
         // In a real app: navigate to the login screen.
         debugPrint('Session expired – redirect to login.');
       },

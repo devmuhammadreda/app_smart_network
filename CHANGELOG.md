@@ -1,3 +1,54 @@
+## 1.1.0
+
+### New features
+
+- **`AppSmartNetworkService`** — canonical entry-point class replacing `ApiService`.
+  `ApiService` is retained as a `@deprecated` typedef alias pointing to
+  `AppSmartNetworkService`; it will be removed in v2.0.0.
+  Migration: replace every `ApiService` reference with `AppSmartNetworkService`.
+
+- **Flexible Error Body Parsing** (`NetworkConfig.errorBodyParser`) — register a
+  custom `ErrorBodyParser` callback to extract `message`, `apiErrorCode`, and
+  `validationErrors` from your backend's specific error envelope. Return `null`
+  to fall back to the built-in extraction logic.
+
+- **Automatic Token Refresh on 401** (`NetworkConfig.tokenRefresher`) — provide a
+  `TokenRefreshCallback` and an optional `RefreshEndpointPredicate` to transparently
+  refresh the access token and retry the original request. Concurrent 401 responses
+  are serialised so the callback is invoked at most once per burst.
+
+- **Custom Request / Response Hooks** (`NetworkConfig.requestHooks` /
+  `NetworkConfig.responseHooks`) — register ordered pipelines of `RequestHook`
+  and `ResponseHook` callbacks to mutate outgoing requests or transform successful
+  (2xx) responses. Hooks are skipped on token-refresh retry requests.
+
+- **Request Deduplication** (`request(..., deduplicate: true)`) — identical
+  simultaneous requests share a single network call. The deduplication key covers
+  method, URL, query parameters, and headers. When the original caller cancels
+  but waiters remain, a new request is automatically promoted.
+
+- **Typed Validation Errors** (`ApiException.validationErrors`) — a non-null
+  `List<ValidationError>` populated from the built-in parser (supports
+  `errors`, `error.details`, and `data.errors` key patterns) or from a custom
+  `ErrorBodyParser`. Use `.isEmpty` instead of null checks.
+
+- **`ValidationError`** — new public class with `field` and `message` fields
+  representing a single field-level validation failure.
+
+### New typedefs (all exported from `app_smart_network.dart`)
+
+`ErrorBodyParser`, `ErrorBodyParserResult`, `TokenRefreshCallback`,
+`RefreshEndpointPredicate`, `RequestHook`, `ResponseHook`
+
+### Backward compatibility
+
+All existing `NetworkConfig(...)` calls continue to compile and behave
+identically — the five new fields are optional with backward-compatible defaults.
+`ApiException` gains one new field (`validationErrors`) with a default of
+`const []`, so existing call sites require no changes.
+
+---
+
 ## 1.0.3
 
 ### Breaking changes

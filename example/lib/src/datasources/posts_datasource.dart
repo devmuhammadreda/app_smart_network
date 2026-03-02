@@ -8,7 +8,7 @@ import '../models/post_model.dart';
 
 class PostsDatasource {
   // ① Access the singleton directly – no constructor injection needed.
-  final ApiService _api = ApiService.instance;
+  final AppSmartNetworkService _api = AppSmartNetworkService.instance;
 
   // ─────────────────────────────────────────────────────────────────────────
   // GET  /posts  – fetch all posts

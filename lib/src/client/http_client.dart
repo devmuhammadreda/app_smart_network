@@ -9,7 +9,8 @@ import 'package:flutter/foundation.dart';
 import 'package:pretty_dio_logger/pretty_dio_logger.dart';
 
 import '../config/network_config.dart';
-import '../interceptors/unauth_interceptor.dart';
+import '../interceptors/hooks_interceptor.dart';
+import '../interceptors/token_refresh_interceptor.dart';
 
 // ── Background JSON decoding ───────────────────────────────────────────────
 
@@ -33,8 +34,10 @@ const _defaultHeaders = {
 
 class HttpClient {
   late final Dio _dio;
+  late final NetworkConfig _config;
 
   HttpClient(NetworkConfig config) {
+    _config = config;
     _dio = Dio();
     _setup(config);
   }
@@ -56,10 +59,16 @@ class HttpClient {
     _dio.transformer = BackgroundTransformer()
       ..jsonDecodeCallback = _parseJsonInBg;
 
+    // Interceptor order (onRequest FIFO, onError LIFO):
+    //   1. HooksInterceptor       – request hooks first; response hooks first on 2xx
+    //   2. RetryInterceptor       – retries non-401 errors
+    //   3. PrettyDioLogger        – debug logging (debug builds only)
+    //   4. TokenRefreshInterceptor – onError called FIRST (LIFO): intercepts 401
     _dio.interceptors.addAll([
+      HooksInterceptor(config),
       _buildRetryInterceptor(),
       if (kDebugMode) _buildLoggerInterceptor(),
-      UnAuthInterceptor(onUnauthorized: config.onUnauthorized),
+      TokenRefreshInterceptor(_dio, config),
     ]);
 
     if (config.allowBadCertificate) {
@@ -82,6 +91,8 @@ class HttpClient {
       retryEvaluator: (error, attempt) {
         final method = error.requestOptions.method.toUpperCase();
         if (!_idempotentMethods.contains(method)) return false;
+        // Never retry 401 — TokenRefreshInterceptor owns that status code.
+        if (error.response?.statusCode == 401) return false;
         return evaluator.evaluate(error, attempt);
       },
     );
@@ -98,6 +109,8 @@ class HttpClient {
       );
 
   Dio get dio => _dio;
+
+  NetworkConfig get config => _config;
 
   void dispose() => _dio.close();
 }

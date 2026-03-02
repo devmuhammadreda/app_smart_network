@@ -12,17 +12,17 @@ import 'services/upload_service.dart';
 export 'services/request_service.dart' show HttpMethod;
 
 // ============================================================================
-// API SERVICE  –  Main entry point
+// APP SMART NETWORK SERVICE  –  Main entry point
 // ============================================================================
 
 /// Singleton network service.
 ///
 /// **Setup** (call once in `main()` or before first request):
 /// ```dart
-/// ApiService.initialize(NetworkConfig(
+/// AppSmartNetworkService.initialize(NetworkConfig(
 ///   baseUrl: 'https://api.example.com',
 ///   onUnauthorized: () {
-///     ApiService.instance.removeAuthToken();
+///     AppSmartNetworkService.instance.removeAuthToken();
 ///     // navigate to login
 ///   },
 /// ));
@@ -30,13 +30,13 @@ export 'services/request_service.dart' show HttpMethod;
 ///
 /// **Usage**:
 /// ```dart
-/// final response = await ApiService.instance.request<Map<String, dynamic>>(
+/// final response = await AppSmartNetworkService.instance.request<Map<String, dynamic>>(
 ///   HttpMethod.get,
 ///   '/users/me',
 /// );
 /// ```
-class ApiService {
-  static ApiService? _instance;
+class AppSmartNetworkService {
+  static AppSmartNetworkService? _instance;
 
   // Stores the locale set at initialize() so removeAppLocale() can restore it.
   static String _defaultLocale = 'en';
@@ -51,11 +51,11 @@ class ApiService {
   /// Returns the singleton.
   ///
   /// Throws [StateError] if [initialize] has not been called yet.
-  static ApiService get instance {
+  static AppSmartNetworkService get instance {
     if (_instance == null) {
       throw StateError(
-        'ApiService is not initialized. '
-        'Call ApiService.initialize(NetworkConfig(...)) in main() before first use.',
+        'AppSmartNetworkService is not initialized. '
+        'Call AppSmartNetworkService.initialize(NetworkConfig(...)) in main() before first use.',
       );
     }
     return _instance!;
@@ -75,10 +75,10 @@ class ApiService {
             .toLowerCase() ??
         'en';
     NetworkLocale.setLocale(_defaultLocale);
-    _instance = ApiService._create(config);
+    _instance = AppSmartNetworkService._create(config);
   }
 
-  ApiService._create(NetworkConfig config) {
+  AppSmartNetworkService._create(NetworkConfig config) {
     _httpClient = HttpClient(config);
     _requestService = RequestService(_httpClient);
     _downloadService = DownloadRequestService(_httpClient);
@@ -122,7 +122,7 @@ class ApiService {
   /// all subsequent error messages are returned in [locale].
   ///
   /// ```dart
-  /// ApiService.instance.setAppLocale('ar');
+  /// AppSmartNetworkService.instance.setAppLocale('ar');
   /// ```
   void setAppLocale(String locale) {
     NetworkLocale.setLocale(locale);
@@ -147,6 +147,7 @@ class ApiService {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
     String? baseUrl,
+    bool deduplicate = false,
   }) {
     return _requestService.execute<T>(
       method,
@@ -158,6 +159,7 @@ class ApiService {
       onSendProgress: onSendProgress,
       onReceiveProgress: onReceiveProgress,
       baseUrl: baseUrl,
+      deduplicate: deduplicate,
     );
   }
 
@@ -222,3 +224,16 @@ class ApiService {
     _instance = null;
   }
 }
+
+// ============================================================================
+// DEPRECATED ALIAS
+// ============================================================================
+
+/// Deprecated. Use [AppSmartNetworkService] instead.
+///
+/// `ApiService` will be **removed** in v2.0.0.
+@Deprecated(
+  'Use AppSmartNetworkService instead. '
+  'ApiService will be removed in v2.0.0.',
+)
+typedef ApiService = AppSmartNetworkService;
