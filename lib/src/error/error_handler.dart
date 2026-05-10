@@ -64,9 +64,9 @@ class ErrorHandler {
         );
       case DioExceptionType.connectionError:
         return ApiException(
-          NetworkLocale.getErrorMessage('ConnectionError'),
+          NetworkLocale.getErrorMessage('NoInternetConnection'),
           0,
-          errorType: 'ConnectionError',
+          errorType: 'NoInternetConnection',
           originalError: error,
         );
       case DioExceptionType.unknown:

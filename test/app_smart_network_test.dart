@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:app_smart_network/app_smart_network.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -214,6 +217,44 @@ void main() {
     test('toString includes apiErrorCode when present', () {
       const e = ApiException('Bad', 400, apiErrorCode: 'UserExists');
       expect(e.toString(), contains('Code: UserExists'));
+    });
+  });
+
+  // ── ErrorHandler ───────────────────────────────────────────────────────────
+
+  group('ErrorHandler', () {
+    setUp(() {
+      NetworkLocale.setLocale('en');
+      NetworkLocale.clearCustomTranslations();
+    });
+
+    test('maps DioExceptionType.connectionError to NoInternetConnection', () {
+      final dioError = DioException(
+        requestOptions: RequestOptions(path: '/x'),
+        type: DioExceptionType.connectionError,
+        error: 'connection refused',
+      );
+
+      final result = ErrorHandler.handleError(dioError);
+
+      expect(result, isA<ApiException>());
+      final api = result as ApiException;
+      expect(api.errorType, 'NoInternetConnection');
+      expect(api.message, 'No internet connection.');
+      expect(api.statusCode, 0);
+    });
+
+    test('maps DioExceptionType.unknown + SocketException to NoInternetConnection', () {
+      final dioError = DioException(
+        requestOptions: RequestOptions(path: '/x'),
+        type: DioExceptionType.unknown,
+        error: const SocketException('Network is unreachable'),
+      );
+
+      final result = ErrorHandler.handleError(dioError);
+
+      expect(result, isA<ApiException>());
+      expect((result as ApiException).errorType, 'NoInternetConnection');
     });
   });
 }
