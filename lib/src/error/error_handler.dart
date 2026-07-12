@@ -71,6 +71,14 @@ class ErrorHandler {
         );
       case DioExceptionType.unknown:
         return _handleUnknownError(error);
+      case DioExceptionType.transformTimeout:
+               return ApiException(
+          NetworkLocale.getErrorMessage('transformTimeout'),
+          0,
+          errorType: 'transformTimeout',
+          originalError: error,
+        );
+
     }
   }
 
