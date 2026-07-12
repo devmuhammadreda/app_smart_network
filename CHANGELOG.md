@@ -1,3 +1,20 @@
+## 1.0.5
+
+### Bug fixes
+
+- **`ErrorHandler`** — `DioExceptionType.transformTimeout` now returns a proper
+  localized message (`TransformTimeout`) with status `408`, instead of leaking
+  the raw `'transformTimeout'` key as the user-facing message.
+
+### Maintenance
+
+- **`equatable` dependency removed** from `pubspec.yaml`. It was left behind
+  after the `Failure` classes were deleted in 1.0.3 and is no longer used.
+- Removed the unused `ConnectionError` locale key (both `en` and `ar`);
+  `connectionError` maps to `NoInternetConnection`, so the key was dead.
+
+---
+
 ## 1.0.4
 
 ### Bug fixes

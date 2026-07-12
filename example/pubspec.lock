@@ -7,7 +7,7 @@ packages:
       path: ".."
       relative: true
     source: path
-    version: "1.0.3"
+    version: "1.0.5"
   args:
     dependency: transitive
     description:
@@ -88,14 +88,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.2.0"
-  equatable:
-    dependency: transitive
-    description:
-      name: equatable
-      sha256: "3bce007a596ff8b3119c45d68aaef631272537c03d30e5d4534dd24bf4c5eaa2"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.1.0"
   ffi:
     dependency: transitive
     description:

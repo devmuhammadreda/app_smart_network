@@ -244,7 +244,27 @@ void main() {
       expect(api.statusCode, 0);
     });
 
-    test('maps DioExceptionType.unknown + SocketException to NoInternetConnection', () {
+    test(
+        'maps DioExceptionType.transformTimeout to a real TransformTimeout message',
+        () {
+      final dioError = DioException(
+        requestOptions: RequestOptions(path: '/x'),
+        type: DioExceptionType.transformTimeout,
+      );
+
+      final result = ErrorHandler.handleError(dioError);
+
+      expect(result, isA<ApiException>());
+      final api = result as ApiException;
+      expect(api.errorType, 'TransformTimeout');
+      expect(api.statusCode, 408);
+      // Must be a translated sentence, not the raw key.
+      expect(api.message, 'Response processing timed out. Please try again.');
+    });
+
+    test(
+        'maps DioExceptionType.unknown + SocketException to NoInternetConnection',
+        () {
       final dioError = DioException(
         requestOptions: RequestOptions(path: '/x'),
         type: DioExceptionType.unknown,
