@@ -17,7 +17,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  app_smart_network: ^1.0.3
+  app_smart_network: ^1.0.4
 ```
 
 ---

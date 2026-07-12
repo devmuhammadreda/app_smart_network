@@ -1,3 +1,17 @@
+## 1.0.4
+
+### Bug fixes
+
+- **`ErrorHandler`** now maps `DioExceptionType.connectionError` to the
+  `NoInternetConnection` error type, so connection failures surface the correct
+  localized "no internet connection" message instead of a generic error.
+
+### Maintenance
+
+- Dependencies upgraded (`dart pub upgrade`).
+
+---
+
 ## 1.0.3
 
 ### Breaking changes
