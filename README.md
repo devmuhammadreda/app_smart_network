@@ -17,7 +17,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  app_smart_network: ^1.0.4
+  app_smart_network: ^1.1.0
 ```
 
 ---
@@ -64,6 +64,57 @@ if (ApiService.isInitialized) {
 | `defaultHeaders` | `Map<String, String>?` | `null` | Extra headers added to every request |
 | `allowBadCertificate` | `bool` | `false` | Bypass SSL validation (**debug only**) |
 | `onUnauthorized` | `OnUnauthorizedCallback?` | `null` | Invoked on HTTP 401 |
+| `interceptors` | `List<Interceptor>` | `const []` | Custom Dio interceptors added to the chain |
+
+---
+
+## Custom interceptors
+
+Pass your own Dio interceptors to `NetworkConfig`. They are registered **after**
+the built-in retry interceptor and **before** the 401 handler and the debug
+logger:
+
+```
+retry  →  your interceptors  →  401 handler  →  debug logger
+```
+
+That position matters: your `onError` sees a 401 before `onUnauthorized` fires,
+and headers you set in `onRequest` show up in the debug logs.
+
+```dart
+class TraceInterceptor extends Interceptor {
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    options.headers['X-Trace-Id'] = generateTraceId();
+    handler.next(options);
+  }
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) {
+    reportToCrashTool(err);
+    handler.next(err);
+  }
+}
+
+void main() {
+  ApiService.initialize(
+    NetworkConfig(
+      baseUrl: 'https://api.example.com',
+      interceptors: [TraceInterceptor()],
+    ),
+  );
+  runApp(const MyApp());
+}
+```
+
+`Interceptor`, `InterceptorsWrapper`, `QueuedInterceptor`,
+`QueuedInterceptorsWrapper`, `RequestOptions`, `RequestInterceptorHandler`,
+`ResponseInterceptorHandler`, `ErrorInterceptorHandler` and `DioException` are
+all exported from `package:app_smart_network`, so you don't need a direct `dio`
+dependency to write one.
+
+> Interceptors are captured at `initialize()`. To change them, call
+> `ApiService.initialize()` again with a new `NetworkConfig`.
 
 ---
 

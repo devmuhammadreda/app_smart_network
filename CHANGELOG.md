@@ -1,3 +1,25 @@
+## 1.1.0
+
+### Features
+
+- **Custom interceptors** — `NetworkConfig` now accepts an `interceptors` list.
+  They are registered after the built-in retry interceptor and before the 401
+  handler and the debug logger, so a custom interceptor can handle a 401 before
+  `onUnauthorized` fires.
+- **New public exports** — `Interceptor`, `InterceptorsWrapper`,
+  `QueuedInterceptor`, `QueuedInterceptorsWrapper`, `RequestOptions`,
+  `RequestInterceptorHandler`, `ResponseInterceptorHandler`,
+  `ErrorInterceptorHandler` and `DioException` are re-exported, so writing an
+  interceptor no longer requires a direct `dio` dependency.
+
+### Changes
+
+- The debug logger interceptor moved to the end of the interceptor chain. Debug
+  output now reflects the final request after every interceptor has run.
+  Debug builds only — no effect on release builds.
+
+---
+
 ## 1.0.5
 
 ### Bug fixes
