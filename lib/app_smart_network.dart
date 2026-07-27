@@ -30,4 +30,14 @@ export 'package:dio/dio.dart'
         Headers,
         ProgressCallback,
         FormData,
-        MultipartFile;
+        MultipartFile,
+        // Types needed to author a custom interceptor.
+        Interceptor,
+        InterceptorsWrapper,
+        QueuedInterceptor,
+        QueuedInterceptorsWrapper,
+        RequestOptions,
+        RequestInterceptorHandler,
+        ResponseInterceptorHandler,
+        ErrorInterceptorHandler,
+        DioException;
