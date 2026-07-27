@@ -43,9 +43,9 @@ import 'package:dio/dio.dart';
 class NetworkConfig {
   /// Custom interceptors spliced into the built-in chain.
   ///
-  /// They run after the retry interceptor and before the 401 handler and the
-  /// debug logger, so they can observe a 401 before [onUnauthorized] fires and
-  /// any headers they add appear in debug logs.
+  /// They run before the retry interceptor, the 401 handler, and the debug
+  /// logger, so they can observe a 401 before [onUnauthorized] fires and any
+  /// headers they add appear in debug logs.
   final List<Interceptor> interceptors;
 
   const NetworkConfig({
@@ -65,25 +65,47 @@ consumers unaffected.
 
 ```dart
 _dio.interceptors.addAll([
-  _buildRetryInterceptor(),
   ...config.interceptors,
+  _buildRetryInterceptor(),
   UnAuthInterceptor(onUnauthorized: config.onUnauthorized),
   if (kDebugMode) _buildLoggerInterceptor(),
 ]);
 ```
 
+**Revision note:** an earlier draft of this spec placed consumer interceptors
+*after* retry, reasoning that "retry re-dispatches through the full chain, so
+consumer interceptors see every attempt, not just the first." That's true but
+irrelevant to ordering: `dio.fetch()` restarts the whole chain from index 0 on
+every attempt regardless of where consumers sit, so `onRequest` is seen on
+every attempt either way. The rationale that actually depends on position is
+about `onError` under a genuinely retried-and-still-failing request:
+`dio_smart_retry` retries by awaiting a nested `dio.fetch()` call and, when
+that nested call rejects, re-forwards the *same* terminal `DioException`
+object via `handler.next` at each unwind level. An interceptor positioned
+*after* retry therefore sees that identical exception replayed once per retry
+level (N+1 calls for N retries, all reporting the one final failure) — a
+misleading duplicate signal. Positioned *before* retry, each `onError` call
+instead corresponds to a genuine, distinct attempt (its own `DioException`
+instance). For a non-retryable failure such as a 401 there is only one real
+attempt regardless of position, so `onError` fires exactly once either way —
+this is the case the "before `UnAuthInterceptor`" rationale below cares about.
+
 Rationale for the position:
 
-- **After retry** — retry re-dispatches through the full chain, so consumer
-  interceptors see every attempt, not just the first.
+- **Before retry** — avoids the duplicate-replay problem described above:
+  positioned after retry, a consumer's `onError` would be re-invoked with the
+  same terminal exception once per retry level (4 calls for the default 3
+  retries) instead of once per genuine attempt.
 - **Before `UnAuthInterceptor`** — Dio runs `onError` handlers in registration
   order, so a consumer's token-refresh interceptor can resolve a 401 before
-  `onUnauthorized` tears down the session.
-- **Before the logger** — the logger moves from position 2 to last so debug
-  output shows the final request after all mutations.
+  `onUnauthorized` tears down the session. A 401 is not in
+  `defaultRetryableStatuses`, so retry passes it through untouched — the
+  consumer sees it before retry has any chance to act on it.
+- **Before the logger** — the logger stays last so debug output shows the
+  final request after all mutations, regardless of where consumers sit.
 
-The logger move is a deliberate behavior change and must be noted in the
-CHANGELOG.
+The logger positioning is unchanged from the previous draft; only the
+consumer/retry order moved. This is noted in the CHANGELOG.
 
 ### 3. Barrel exports
 

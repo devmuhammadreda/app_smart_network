@@ -70,28 +70,37 @@ if (ApiService.isInitialized) {
 
 ## Custom interceptors
 
-Pass your own Dio interceptors to `NetworkConfig`. They are registered **after**
-the built-in retry interceptor and **before** the 401 handler and the debug
+Pass your own Dio interceptors to `NetworkConfig`. They are registered
+**before** the built-in retry interceptor, the 401 handler, and the debug
 logger:
 
 ```
-retry  →  your interceptors  →  401 handler  →  debug logger
+your interceptors  →  retry  →  401 handler  →  debug logger
 ```
 
-That position matters: your `onError` sees a 401 before `onUnauthorized` fires,
-and headers you set in `onRequest` show up in the debug logs.
+That position matters for two reasons:
+
+- Your `onError` sees a 401 before `onUnauthorized` fires (a 401 is not
+  retried, so it reaches your interceptor untouched).
+- For a request that genuinely gets retried, each retry restarts the whole
+  chain, so your `onError` fires once per real attempt — never a duplicate
+  replay of the same failure, which is what happens if an interceptor sits
+  after retry instead.
+
+Headers you set in `onRequest` still show up in the debug logs, since the
+logger stays last.
 
 ```dart
 class TraceInterceptor extends Interceptor {
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    options.headers['X-Trace-Id'] = generateTraceId();
+    options.headers['X-Trace-Id'] = 'trace-id'; // your implementation
     handler.next(options);
   }
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
-    reportToCrashTool(err);
+    // your implementation, e.g. report to a crash-reporting tool
     handler.next(err);
   }
 }
@@ -109,12 +118,80 @@ void main() {
 
 `Interceptor`, `InterceptorsWrapper`, `QueuedInterceptor`,
 `QueuedInterceptorsWrapper`, `RequestOptions`, `RequestInterceptorHandler`,
-`ResponseInterceptorHandler`, `ErrorInterceptorHandler` and `DioException` are
-all exported from `package:app_smart_network`, so you don't need a direct `dio`
-dependency to write one.
+`ResponseInterceptorHandler`, `ErrorInterceptorHandler`, `DioException`,
+`DioExceptionType` and `ResponseType` are all exported from
+`package:app_smart_network`, so you don't need a direct `dio` dependency to
+write most interceptors.
 
 > Interceptors are captured at `initialize()`. To change them, call
-> `ApiService.initialize()` again with a new `NetworkConfig`.
+> `ApiService.initialize()` again with a new `NetworkConfig` — and pass fresh
+> interceptor instances when you do, since the package closes the old Dio
+> client but does not dispose your interceptors.
+
+### Token refresh on 401
+
+Since the package's `Dio` instance isn't exposed, replay a request after a
+token refresh through `ApiService.instance.request(...)`:
+
+```dart
+class TokenRefreshInterceptor extends Interceptor {
+  bool _isRefreshing = false;
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) async {
+    if (err.response?.statusCode != 401 || _isRefreshing) {
+      handler.next(err);
+      return;
+    }
+
+    _isRefreshing = true;
+    try {
+      final newToken = await _refreshToken(); // your implementation
+      ApiService.instance.setAuthToken(newToken);
+
+      final requestOptions = err.requestOptions;
+      final response = await ApiService.instance.request<dynamic>(
+        HttpMethod.values.byName(requestOptions.method.toLowerCase()),
+        requestOptions.path,
+        data: requestOptions.data,
+        queryParameters: requestOptions.queryParameters,
+      );
+      handler.resolve(response);
+    } catch (_) {
+      // Refresh or replay failed — fall through to onUnauthorized.
+      handler.next(err);
+    } finally {
+      _isRefreshing = false;
+    }
+  }
+
+  Future<String> _refreshToken() async {
+    // your implementation: call your refresh endpoint and return the new
+    // access token.
+    throw UnimplementedError();
+  }
+}
+```
+
+> **Re-entrancy warning:** `ApiService.instance.request(...)` re-enters the
+> full interceptor chain, including this interceptor's own `onError` if the
+> replayed request also fails with a 401. The `_isRefreshing` guard above
+> prevents that from recursing into another refresh attempt, but a repeated
+> 401 after a successful refresh will still fall through to `onError` once
+> more with `_isRefreshing` false again — make sure your refresh logic can't
+> loop indefinitely (e.g. cap retries or bail out if the new token is
+> rejected immediately).
+
+### Caveats
+
+- `onRequest` fires once per retry attempt, not just the first. Prefer
+  **assignment** (`options.headers['X'] = v`) over **accumulation**
+  (`options.path = '$prefix${options.path}'`) — accumulation compounds on
+  every retried attempt.
+- The connectivity pre-check in `ensureConnected()` throws before the request
+  ever reaches Dio, so consumer interceptors never observe offline failures;
+  only failures that occur after a request is actually dispatched reach your
+  `onError`.
 
 ---
 

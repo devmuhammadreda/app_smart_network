@@ -6,6 +6,7 @@ import 'package:app_smart_network/src/interceptors/unauth_interceptor.dart';
 import 'package:dio/dio.dart';
 import 'package:dio_smart_retry/dio_smart_retry.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pretty_dio_logger/pretty_dio_logger.dart';
 
 /// Returns a canned response without touching the network and records every
 /// [RequestOptions] that reaches the wire.
@@ -67,12 +68,12 @@ void main() {
         baseUrl: 'https://example.com',
         interceptors: [_RecordingInterceptor(events)],
       ));
+      addTearDown(client.dispose);
       client.dio.httpClientAdapter = _FakeAdapter();
 
       await _get(client);
 
       expect(events, ['request']);
-      client.dispose();
     });
 
     test('headers added by a custom interceptor reach the adapter', () async {
@@ -86,12 +87,12 @@ void main() {
           ),
         ],
       ));
+      addTearDown(client.dispose);
       client.dio.httpClientAdapter = adapter;
 
       await _get(client);
 
       expect(adapter.captured.single.headers['X-Trace-Id'], 'abc123');
-      client.dispose();
     });
 
     test('custom onError runs before onUnauthorized fires', () async {
@@ -101,36 +102,72 @@ void main() {
         interceptors: [_RecordingInterceptor(events)],
         onUnauthorized: () => events.add('unauthorized'),
       ));
+      addTearDown(client.dispose);
       client.dio.httpClientAdapter = _FakeAdapter(statusCode: 401);
 
       await expectLater(_get(client), throwsA(isA<DioException>()));
 
       expect(events, ['request', 'error', 'unauthorized']);
-      client.dispose();
     });
 
-    test('custom interceptors sit between retry and the 401 handler', () {
+    test(
+        'a custom interceptor that resolves a 401 stops onUnauthorized from '
+        'firing', () async {
+      final events = <String>[];
+      final resolvingInterceptor = InterceptorsWrapper(
+        onError: (err, handler) {
+          handler.resolve(Response(
+            requestOptions: err.requestOptions,
+            statusCode: 200,
+          ));
+        },
+      );
+      final client = HttpClient(NetworkConfig(
+        baseUrl: 'https://example.com',
+        interceptors: [resolvingInterceptor],
+        onUnauthorized: () => events.add('unauthorized'),
+      ));
+      addTearDown(client.dispose);
+      client.dio.httpClientAdapter = _FakeAdapter(statusCode: 401);
+
+      final response = await client.dio.get<String>(
+        '/ping',
+        options: Options(responseType: ResponseType.plain),
+      );
+
+      expect(response.statusCode, 200);
+      expect(events, isNot(contains('unauthorized')));
+    });
+
+    test(
+        'custom interceptors run before retry, the 401 handler, and the '
+        'debug logger', () {
       final custom = _RecordingInterceptor(<String>[]);
       final client = HttpClient(NetworkConfig(
         baseUrl: 'https://example.com',
         interceptors: [custom],
       ));
+      addTearDown(client.dispose);
 
       final chain = client.dio.interceptors;
-      expect(
-        chain.indexWhere((i) => i is RetryInterceptor),
-        lessThan(chain.indexOf(custom)),
-      );
-      expect(
-        chain.indexOf(custom),
-        lessThan(chain.indexWhere((i) => i is UnAuthInterceptor)),
-      );
-      client.dispose();
+      final customIndex = chain.indexOf(custom);
+      final retryIndex = chain.indexWhere((i) => i is RetryInterceptor);
+      final unauthIndex = chain.indexWhere((i) => i is UnAuthInterceptor);
+      final loggerIndex = chain.indexWhere((i) => i is PrettyDioLogger);
+
+      // kDebugMode is true under `flutter test`, so the logger is registered
+      // and its position can be asserted on.
+      expect(loggerIndex, greaterThanOrEqualTo(0));
+
+      expect(customIndex, lessThan(retryIndex));
+      expect(retryIndex, lessThan(unauthIndex));
+      expect(unauthIndex, lessThan(loggerIndex));
     });
 
     test('default config registers the built-ins and nothing custom', () {
       final client =
           HttpClient(const NetworkConfig(baseUrl: 'https://example.com'));
+      addTearDown(client.dispose);
 
       expect(
           client.dio.interceptors.whereType<RetryInterceptor>(), hasLength(1));
@@ -138,7 +175,6 @@ void main() {
           client.dio.interceptors.whereType<UnAuthInterceptor>(), hasLength(1));
       expect(
           client.dio.interceptors.whereType<_RecordingInterceptor>(), isEmpty);
-      client.dispose();
     });
   });
 }

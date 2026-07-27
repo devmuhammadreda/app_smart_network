@@ -3,14 +3,18 @@
 ### Features
 
 - **Custom interceptors** — `NetworkConfig` now accepts an `interceptors` list.
-  They are registered after the built-in retry interceptor and before the 401
-  handler and the debug logger, so a custom interceptor can handle a 401 before
-  `onUnauthorized` fires.
+  They are registered **before** the built-in retry interceptor, the 401
+  handler, and the debug logger. A custom interceptor can therefore handle a
+  401 before `onUnauthorized` fires, and its `onError` fires once per genuine
+  attempt on a retried request instead of receiving a duplicate replay of the
+  same terminal failure (which is what happens to interceptors positioned
+  after retry).
 - **New public exports** — `Interceptor`, `InterceptorsWrapper`,
   `QueuedInterceptor`, `QueuedInterceptorsWrapper`, `RequestOptions`,
   `RequestInterceptorHandler`, `ResponseInterceptorHandler`,
-  `ErrorInterceptorHandler` and `DioException` are re-exported, so writing an
-  interceptor no longer requires a direct `dio` dependency.
+  `ErrorInterceptorHandler`, `DioException`, `DioExceptionType` and
+  `ResponseType` are re-exported, so writing most interceptors no longer
+  requires a direct `dio` dependency.
 
 ### Changes
 

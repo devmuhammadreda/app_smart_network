@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:app_smart_network/app_smart_network.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

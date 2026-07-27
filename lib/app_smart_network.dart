@@ -21,7 +21,7 @@ export 'src/error/error_handler.dart';
 export 'src/error/exceptions.dart';
 
 // Re-export frequently used Dio types so consumers don't need a direct
-// dependency on `dio` for common operations.
+// dependency on `dio` for most operations.
 export 'package:dio/dio.dart'
     show
         Response,
@@ -31,6 +31,7 @@ export 'package:dio/dio.dart'
         ProgressCallback,
         FormData,
         MultipartFile,
+        ResponseType,
         // Types needed to author a custom interceptor.
         Interceptor,
         InterceptorsWrapper,
@@ -40,4 +41,5 @@ export 'package:dio/dio.dart'
         RequestInterceptorHandler,
         ResponseInterceptorHandler,
         ErrorInterceptorHandler,
-        DioException;
+        DioException,
+        DioExceptionType;

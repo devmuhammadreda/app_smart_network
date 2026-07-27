@@ -56,13 +56,26 @@ class HttpClient {
     _dio.transformer = BackgroundTransformer()
       ..jsonDecodeCallback = _parseJsonInBg;
 
-    // Order matters: consumer interceptors run after retry (so they see every
-    // attempt) and before UnAuthInterceptor (so they can handle a 401 before
-    // onUnauthorized tears down the session). The logger runs last so it prints
-    // the final request after all mutations.
+    // Order matters: consumer interceptors run first, before retry. For a
+    // non-retryable failure (e.g. a 401 — see UnAuthInterceptor below) that's
+    // the request's only real attempt, so onError fires exactly once either
+    // way. The position matters for *retryable* failures: dio_smart_retry
+    // retries by calling dio.fetch() again, which restarts the whole chain
+    // from index 0, so consumers positioned before retry see one onError per
+    // genuine attempt, each with its own distinct DioException. Positioned
+    // after retry, they'd instead see the *same* terminal DioException
+    // object re-forwarded once per unwind level as each nested fetch()
+    // rejects (N+1 calls for N retries, all reporting the one final failure)
+    // — a misleading duplicate signal, not a legitimate one. Consumer
+    // interceptors still precede UnAuthInterceptor, so they can handle a 401
+    // before onUnauthorized tears down the session, and precede the logger,
+    // so debug output reflects the final request after all mutations.
+    // dio.fetch() restarts the chain from index 0 on every attempt
+    // regardless of interceptor order, so onRequest is always seen once per
+    // attempt no matter where consumers sit.
     _dio.interceptors.addAll([
-      _buildRetryInterceptor(),
       ...config.interceptors,
+      _buildRetryInterceptor(),
       UnAuthInterceptor(onUnauthorized: config.onUnauthorized),
       if (kDebugMode) _buildLoggerInterceptor(),
     ]);

@@ -26,12 +26,26 @@ class NetworkConfig {
 
   /// Custom interceptors spliced into the built-in chain.
   ///
-  /// They run after the retry interceptor and before the 401 handler and the
-  /// debug logger, so they can observe a 401 before [onUnauthorized] fires and
-  /// any headers they add appear in debug logs.
+  /// They run **before** the retry interceptor, the 401 handler, and the
+  /// debug logger:
+  ///
+  /// - For a 401 (not retried — see [onUnauthorized]) that's the request's
+  ///   only real attempt, so `onError` fires exactly once, before
+  ///   [onUnauthorized] tears down the session.
+  /// - For a retryable failure, each retry restarts the whole chain from the
+  ///   top, so `onError` fires once per genuine attempt, each with its own
+  ///   distinct exception. Positioned after retry instead, an interceptor
+  ///   would see the *same* terminal exception re-forwarded once per retry
+  ///   level as `dio_smart_retry` unwinds (N+1 duplicate calls for N
+  ///   retries, all reporting the one final failure).
+  /// - They precede the debug logger, so any headers they add appear in
+  ///   debug logs.
   ///
   /// Interceptors are fixed at initialization; call `ApiService.initialize()`
-  /// again with a new config to change them.
+  /// again with a new config to change them. Pass fresh interceptor instances
+  /// when doing so — the package closes the old Dio client but does not
+  /// dispose consumer interceptors, so reusing a stateful instance across
+  /// re-initialization can carry over stale state.
   final List<Interceptor> interceptors;
 
   const NetworkConfig({

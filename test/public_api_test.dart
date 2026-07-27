@@ -5,16 +5,25 @@ import 'package:flutter_test/flutter_test.dart';
 
 class _BarrelInterceptor extends Interceptor {
   @override
-  void onRequest(RequestOptions options, RequestInterceptorHandler handler) =>
-      handler.next(options);
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    // Exercises ResponseType from the barrel export.
+    options.responseType = ResponseType.plain;
+    handler.next(options);
+  }
 
   @override
   void onResponse(Response response, ResponseInterceptorHandler handler) =>
       handler.next(response);
 
   @override
-  void onError(DioException err, ErrorInterceptorHandler handler) =>
+  void onError(DioException err, ErrorInterceptorHandler handler) {
+    // Exercises DioExceptionType from the barrel export.
+    if (err.type == DioExceptionType.badResponse) {
       handler.next(err);
+      return;
+    }
+    handler.next(err);
+  }
 }
 
 class _BarrelQueuedInterceptor extends QueuedInterceptor {}
