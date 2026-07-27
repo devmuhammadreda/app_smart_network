@@ -56,10 +56,15 @@ class HttpClient {
     _dio.transformer = BackgroundTransformer()
       ..jsonDecodeCallback = _parseJsonInBg;
 
+    // Order matters: consumer interceptors run after retry (so they see every
+    // attempt) and before UnAuthInterceptor (so they can handle a 401 before
+    // onUnauthorized tears down the session). The logger runs last so it prints
+    // the final request after all mutations.
     _dio.interceptors.addAll([
       _buildRetryInterceptor(),
-      if (kDebugMode) _buildLoggerInterceptor(),
+      ...config.interceptors,
       UnAuthInterceptor(onUnauthorized: config.onUnauthorized),
+      if (kDebugMode) _buildLoggerInterceptor(),
     ]);
 
     if (config.allowBadCertificate) {

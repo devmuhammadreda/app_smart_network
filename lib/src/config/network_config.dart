@@ -1,3 +1,5 @@
+import 'package:dio/dio.dart';
+
 /// Callback invoked when the server returns HTTP 401 Unauthorized.
 typedef OnUnauthorizedCallback = void Function();
 
@@ -22,6 +24,16 @@ class NetworkConfig {
   /// Called when the server responds with HTTP 401.
   final OnUnauthorizedCallback? onUnauthorized;
 
+  /// Custom interceptors spliced into the built-in chain.
+  ///
+  /// They run after the retry interceptor and before the 401 handler and the
+  /// debug logger, so they can observe a 401 before [onUnauthorized] fires and
+  /// any headers they add appear in debug logs.
+  ///
+  /// Interceptors are fixed at initialization; call `ApiService.initialize()`
+  /// again with a new config to change them.
+  final List<Interceptor> interceptors;
+
   const NetworkConfig({
     required this.baseUrl,
     this.connectTimeout = const Duration(milliseconds: 30000),
@@ -29,5 +41,6 @@ class NetworkConfig {
     this.defaultHeaders,
     this.allowBadCertificate = false,
     this.onUnauthorized,
+    this.interceptors = const [],
   });
 }
