@@ -1,3 +1,60 @@
+## 1.2.0
+
+### Features
+
+- **Configurable retry** — `NetworkConfig` now accepts a `retry` policy.
+  `RetryPolicy` exposes `attempts`, `delays`, `methods` and `statuses`, all of
+  which were previously hardcoded. Pass `retry: null` to disable retry app-wide.
+- **Per-request retry** — `request()`, `download()` and `uploadFile()` take a
+  `retry:` argument that overrides the app-wide policy for a single call. Use
+  `RetryPolicy.off` to opt one request out, or a policy with a higher
+  `attempts` to opt one in.
+- **New public export** — `RetryPolicy`.
+
+### Changes
+
+- Retry defaults are unchanged: three retries on idempotent methods with a
+  1 s / 2 s / 3 s backoff. Code that does not mention `retry` behaves exactly
+  as it did in 1.1.0.
+
+### Notes
+
+- `RetryPolicy.delays` and `RetryPolicy.methods` are read from the app-wide
+  policy only. Backoff is fixed when the client is built and cannot vary per
+  request; the method allowlist guards calls that did not supply a policy, so a
+  policy attached to a request bypasses it — that is what makes
+  `retry: RetryPolicy(attempts: 5)` retry a POST.
+- `attempts` is capped at `RetryPolicy.maxAttempts` (10), asserted at
+  construction.
+
+---
+
+## 1.1.0
+
+### Features
+
+- **Custom interceptors** — `NetworkConfig` now accepts an `interceptors` list.
+  They are registered **before** the built-in retry interceptor, the 401
+  handler, and the debug logger. A custom interceptor can therefore handle a
+  401 before `onUnauthorized` fires, and its `onError` fires once per genuine
+  attempt on a retried request instead of receiving a duplicate replay of the
+  same terminal failure (which is what happens to interceptors positioned
+  after retry).
+- **New public exports** — `Interceptor`, `InterceptorsWrapper`,
+  `QueuedInterceptor`, `QueuedInterceptorsWrapper`, `RequestOptions`,
+  `RequestInterceptorHandler`, `ResponseInterceptorHandler`,
+  `ErrorInterceptorHandler`, `DioException`, `DioExceptionType` and
+  `ResponseType` are re-exported, so writing most interceptors no longer
+  requires a direct `dio` dependency.
+
+### Changes
+
+- The debug logger interceptor moved to the end of the interceptor chain. Debug
+  output now reflects the final request after every interceptor has run.
+  Debug builds only — no effect on release builds.
+
+---
+
 ## 1.0.5
 
 ### Bug fixes

@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 
 import 'client/http_client.dart';
 import 'config/network_config.dart';
+import 'config/retry_policy.dart';
 import 'i18n/network_locale.dart';
 import 'services/download_service.dart';
 import 'services/request_service.dart';
@@ -137,6 +138,11 @@ class ApiService {
 
   // ── Request ───────────────────────────────────────────────────────────────
 
+  /// Sends a request, optionally overriding the app-wide retry policy.
+  ///
+  /// ```dart
+  /// await api.request(HttpMethod.post, '/pay', retry: RetryPolicy.off);
+  /// ```
   Future<Response<T>> request<T>(
     HttpMethod method,
     String path, {
@@ -147,6 +153,7 @@ class ApiService {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
     String? baseUrl,
+    RetryPolicy? retry,
   }) {
     return _requestService.execute<T>(
       method,
@@ -158,6 +165,7 @@ class ApiService {
       onSendProgress: onSendProgress,
       onReceiveProgress: onReceiveProgress,
       baseUrl: baseUrl,
+      retry: retry,
     );
   }
 
@@ -173,6 +181,7 @@ class ApiService {
     String lengthHeader = Headers.contentLengthHeader,
     Options? options,
     String? baseUrl,
+    RetryPolicy? retry,
   }) {
     return _downloadService.execute(
       urlPath,
@@ -184,6 +193,7 @@ class ApiService {
       lengthHeader: lengthHeader,
       options: options,
       baseUrl: baseUrl,
+      retry: retry,
     );
   }
 
@@ -200,6 +210,7 @@ class ApiService {
     CancelToken? cancelToken,
     ProgressCallback? onSendProgress,
     String? baseUrl,
+    RetryPolicy? retry,
   }) {
     return _uploadService.execute<T>(
       path,
@@ -212,6 +223,7 @@ class ApiService {
       cancelToken: cancelToken,
       onSendProgress: onSendProgress,
       baseUrl: baseUrl,
+      retry: retry,
     );
   }
 

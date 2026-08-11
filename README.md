@@ -2,7 +2,7 @@
 
 A smart Flutter network package built on [Dio](https://pub.dev/packages/dio) with:
 
-- **Automatic retry** – retries idempotent requests (GET, PUT, DELETE) on failure
+- **Configurable retry** – retries idempotent requests (GET, PUT, DELETE) by default; tune or disable it app-wide, or override it on a single call
 - **Connectivity guard** – checks internet before every request; throws a clear offline error
 - **Mobile timeout** – extends receive-timeout automatically on cellular networks
 - **Locale-aware errors** – all error messages respect the active language (built-in **English & Arabic**, extensible)
@@ -17,7 +17,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  app_smart_network: ^1.0.4
+  app_smart_network: ^1.2.0
 ```
 
 ---
@@ -64,6 +64,201 @@ if (ApiService.isInitialized) {
 | `defaultHeaders` | `Map<String, String>?` | `null` | Extra headers added to every request |
 | `allowBadCertificate` | `bool` | `false` | Bypass SSL validation (**debug only**) |
 | `onUnauthorized` | `OnUnauthorizedCallback?` | `null` | Invoked on HTTP 401 |
+| `interceptors` | `List<Interceptor>` | `const []` | Custom Dio interceptors added to the chain |
+| `retry` | `RetryPolicy?` | `RetryPolicy()` | App-wide retry behaviour; `null` disables retry |
+
+---
+
+## Retry
+
+By default every idempotent request (GET, PUT, DELETE, HEAD, OPTIONS) is
+retried up to three times with a 1 s / 2 s / 3 s backoff. Change that with a
+`RetryPolicy` on `NetworkConfig`:
+
+```dart
+ApiService.initialize(NetworkConfig(
+  baseUrl: 'https://api.example.com',
+  retry: const RetryPolicy(
+    attempts: 2,                                    // 2 retries, 3 tries total
+    delays: [Duration(seconds: 1), Duration(seconds: 5)],
+    statuses: {500, 502, 503, 504},
+  ),
+));
+```
+
+Pass `retry: null` to turn retry off for the whole app.
+
+### RetryPolicy options
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `attempts` | `int` | `3` | Retries **after** the first try; `0` disables retry (max `10`) |
+| `delays` | `List<Duration>` | `[1 s, 2 s, 3 s]` | Backoff between attempts; the last entry repeats |
+| `methods` | `Set<String>` | `{GET, PUT, DELETE, HEAD, OPTIONS}` | Methods eligible for retry |
+| `statuses` | `Set<int>` | `defaultRetryableStatuses` | Response codes treated as retryable |
+
+### Per-request retry
+
+Any single call can override the app-wide policy — `request()`, `download()`
+and `uploadFile()` all take a `retry:` argument:
+
+```dart
+// Never retry this payment, whatever the app-wide policy says.
+await api.request(HttpMethod.post, '/payments', retry: RetryPolicy.off);
+
+// Retry this POST five times — it carries an idempotency key.
+await api.request(
+  HttpMethod.post,
+  '/sync',
+  data: payload,
+  retry: const RetryPolicy(attempts: 5),
+);
+
+// Treat 409 as retryable for this call only.
+await api.request(HttpMethod.get, '/lock', retry: const RetryPolicy(statuses: {409}));
+```
+
+Omitting `retry:` uses the app-wide policy, so existing code keeps its current
+behaviour.
+
+> **Two fields are app-wide only.** `delays` cannot vary per request — the
+> backoff schedule is fixed when the client is built. `methods` is the
+> allowlist for calls that *didn't* ask for anything: attaching a policy to a
+> request is itself your statement that the call is safe to replay, so the
+> allowlist is bypassed there. That is why `retry: RetryPolicy(attempts: 5)`
+> retries a POST even though POST is not in the default allowlist.
+
+**Retrying non-idempotent requests is your call.** A retried POST can create
+duplicate records if the first attempt reached the server but the response was
+lost. Only opt one in when the endpoint is idempotent — for example when it
+accepts an idempotency key.
+
+---
+
+## Custom interceptors
+
+Pass your own Dio interceptors to `NetworkConfig`. They are registered
+**before** the built-in retry interceptor, the 401 handler, and the debug
+logger:
+
+```
+your interceptors  →  retry  →  401 handler  →  debug logger
+```
+
+That position matters for two reasons:
+
+- Your `onError` sees a 401 before `onUnauthorized` fires (a 401 is not
+  retried, so it reaches your interceptor untouched).
+- For a request that genuinely gets retried, each retry restarts the whole
+  chain, so your `onError` fires once per real attempt — never a duplicate
+  replay of the same failure, which is what happens if an interceptor sits
+  after retry instead.
+
+Headers you set in `onRequest` still show up in the debug logs, since the
+logger stays last.
+
+```dart
+class TraceInterceptor extends Interceptor {
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    options.headers['X-Trace-Id'] = 'trace-id'; // your implementation
+    handler.next(options);
+  }
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) {
+    // your implementation, e.g. report to a crash-reporting tool
+    handler.next(err);
+  }
+}
+
+void main() {
+  ApiService.initialize(
+    NetworkConfig(
+      baseUrl: 'https://api.example.com',
+      interceptors: [TraceInterceptor()],
+    ),
+  );
+  runApp(const MyApp());
+}
+```
+
+`Interceptor`, `InterceptorsWrapper`, `QueuedInterceptor`,
+`QueuedInterceptorsWrapper`, `RequestOptions`, `RequestInterceptorHandler`,
+`ResponseInterceptorHandler`, `ErrorInterceptorHandler`, `DioException`,
+`DioExceptionType` and `ResponseType` are all exported from
+`package:app_smart_network`, so you don't need a direct `dio` dependency to
+write most interceptors.
+
+> Interceptors are captured at `initialize()`. To change them, call
+> `ApiService.initialize()` again with a new `NetworkConfig` — and pass fresh
+> interceptor instances when you do, since the package closes the old Dio
+> client but does not dispose your interceptors.
+
+### Token refresh on 401
+
+Since the package's `Dio` instance isn't exposed, replay a request after a
+token refresh through `ApiService.instance.request(...)`:
+
+```dart
+class TokenRefreshInterceptor extends Interceptor {
+  bool _isRefreshing = false;
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) async {
+    if (err.response?.statusCode != 401 || _isRefreshing) {
+      handler.next(err);
+      return;
+    }
+
+    _isRefreshing = true;
+    try {
+      final newToken = await _refreshToken(); // your implementation
+      ApiService.instance.setAuthToken(newToken);
+
+      final requestOptions = err.requestOptions;
+      final response = await ApiService.instance.request<dynamic>(
+        HttpMethod.values.byName(requestOptions.method.toLowerCase()),
+        requestOptions.path,
+        data: requestOptions.data,
+        queryParameters: requestOptions.queryParameters,
+      );
+      handler.resolve(response);
+    } catch (_) {
+      // Refresh or replay failed — fall through to onUnauthorized.
+      handler.next(err);
+    } finally {
+      _isRefreshing = false;
+    }
+  }
+
+  Future<String> _refreshToken() async {
+    // your implementation: call your refresh endpoint and return the new
+    // access token.
+    throw UnimplementedError();
+  }
+}
+```
+
+> **Re-entrancy warning:** `ApiService.instance.request(...)` re-enters the
+> full interceptor chain, including this interceptor's own `onError` if the
+> replayed request also fails with a 401. The `_isRefreshing` guard above
+> prevents that from recursing into another refresh attempt, but a repeated
+> 401 after a successful refresh will still fall through to `onError` once
+> more with `_isRefreshing` false again — make sure your refresh logic can't
+> loop indefinitely (e.g. cap retries or bail out if the new token is
+> rejected immediately).
+
+### Caveats
+
+- `onRequest` fires once per retry attempt, not just the first. Prefer
+  **assignment** (`options.headers['X'] = v`) over **accumulation**
+  (`options.path = '$prefix${options.path}'`) — accumulation compounds on
+  every retried attempt.
+- The connectivity pre-check in `ensureConnected()` throws before the request
+  ever reaches Dio, so consumer interceptors never observe offline failures;
+  only failures that occur after a request is actually dispatched reach your
+  `onError`.
 
 ---
 
