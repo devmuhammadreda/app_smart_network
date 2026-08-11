@@ -1,5 +1,6 @@
 /// A smart Flutter network package built on [Dio] with:
-/// - Automatic retry (idempotent methods only)
+/// - Configurable retry, app-wide or per request (idempotent methods by
+///   default)
 /// - Connectivity check before every request
 /// - Extended receive-timeout on mobile networks
 /// - Built-in locale-aware error messages (English & Arabic)
@@ -12,6 +13,7 @@ export 'src/api_service.dart' show HttpMethod;
 
 // Configuration
 export 'src/config/network_config.dart';
+export 'src/config/retry_policy.dart' show RetryPolicy;
 
 // Locale / i18n
 export 'src/i18n/network_locale.dart';

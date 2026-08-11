@@ -2,7 +2,7 @@
 
 A smart Flutter network package built on [Dio](https://pub.dev/packages/dio) with:
 
-- **Automatic retry** – retries idempotent requests (GET, PUT, DELETE) on failure
+- **Configurable retry** – retries idempotent requests (GET, PUT, DELETE) by default; tune or disable it app-wide, or override it on a single call
 - **Connectivity guard** – checks internet before every request; throws a clear offline error
 - **Mobile timeout** – extends receive-timeout automatically on cellular networks
 - **Locale-aware errors** – all error messages respect the active language (built-in **English & Arabic**, extensible)
@@ -17,7 +17,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  app_smart_network: ^1.1.0
+  app_smart_network: ^1.2.0
 ```
 
 ---
@@ -65,6 +65,73 @@ if (ApiService.isInitialized) {
 | `allowBadCertificate` | `bool` | `false` | Bypass SSL validation (**debug only**) |
 | `onUnauthorized` | `OnUnauthorizedCallback?` | `null` | Invoked on HTTP 401 |
 | `interceptors` | `List<Interceptor>` | `const []` | Custom Dio interceptors added to the chain |
+| `retry` | `RetryPolicy?` | `RetryPolicy()` | App-wide retry behaviour; `null` disables retry |
+
+---
+
+## Retry
+
+By default every idempotent request (GET, PUT, DELETE, HEAD, OPTIONS) is
+retried up to three times with a 1 s / 2 s / 3 s backoff. Change that with a
+`RetryPolicy` on `NetworkConfig`:
+
+```dart
+ApiService.initialize(NetworkConfig(
+  baseUrl: 'https://api.example.com',
+  retry: const RetryPolicy(
+    attempts: 2,                                    // 2 retries, 3 tries total
+    delays: [Duration(seconds: 1), Duration(seconds: 5)],
+    statuses: {500, 502, 503, 504},
+  ),
+));
+```
+
+Pass `retry: null` to turn retry off for the whole app.
+
+### RetryPolicy options
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `attempts` | `int` | `3` | Retries **after** the first try; `0` disables retry (max `10`) |
+| `delays` | `List<Duration>` | `[1 s, 2 s, 3 s]` | Backoff between attempts; the last entry repeats |
+| `methods` | `Set<String>` | `{GET, PUT, DELETE, HEAD, OPTIONS}` | Methods eligible for retry |
+| `statuses` | `Set<int>` | `defaultRetryableStatuses` | Response codes treated as retryable |
+
+### Per-request retry
+
+Any single call can override the app-wide policy — `request()`, `download()`
+and `uploadFile()` all take a `retry:` argument:
+
+```dart
+// Never retry this payment, whatever the app-wide policy says.
+await api.request(HttpMethod.post, '/payments', retry: RetryPolicy.off);
+
+// Retry this POST five times — it carries an idempotency key.
+await api.request(
+  HttpMethod.post,
+  '/sync',
+  data: payload,
+  retry: const RetryPolicy(attempts: 5),
+);
+
+// Treat 409 as retryable for this call only.
+await api.request(HttpMethod.get, '/lock', retry: const RetryPolicy(statuses: {409}));
+```
+
+Omitting `retry:` uses the app-wide policy, so existing code keeps its current
+behaviour.
+
+> **Two fields are app-wide only.** `delays` cannot vary per request — the
+> backoff schedule is fixed when the client is built. `methods` is the
+> allowlist for calls that *didn't* ask for anything: attaching a policy to a
+> request is itself your statement that the call is safe to replay, so the
+> allowlist is bypassed there. That is why `retry: RetryPolicy(attempts: 5)`
+> retries a POST even though POST is not in the default allowlist.
+
+**Retrying non-idempotent requests is your call.** A retried POST can create
+duplicate records if the first attempt reached the server but the response was
+lost. Only opt one in when the endpoint is idempotent — for example when it
+accepts an idempotency key.
 
 ---
 

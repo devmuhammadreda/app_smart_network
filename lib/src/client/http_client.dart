@@ -9,16 +9,13 @@ import 'package:flutter/foundation.dart';
 import 'package:pretty_dio_logger/pretty_dio_logger.dart';
 
 import '../config/network_config.dart';
+import '../config/retry_policy.dart';
 import '../interceptors/unauth_interceptor.dart';
 
 // ── Background JSON decoding ───────────────────────────────────────────────
 
 dynamic _parseAndDecode(String response) => jsonDecode(response);
 Future<dynamic> _parseJsonInBg(String text) => compute(_parseAndDecode, text);
-
-// ── Idempotent HTTP methods (safe to retry automatically) ──────────────────
-
-const _idempotentMethods = {'GET', 'PUT', 'DELETE', 'HEAD', 'OPTIONS'};
 
 // ── Default headers ────────────────────────────────────────────────────────
 
@@ -75,7 +72,7 @@ class HttpClient {
     // attempt no matter where consumers sit.
     _dio.interceptors.addAll([
       ...config.interceptors,
-      _buildRetryInterceptor(),
+      _buildRetryInterceptor(config.retry),
       UnAuthInterceptor(onUnauthorized: config.onUnauthorized),
       if (kDebugMode) _buildLoggerInterceptor(),
     ]);
@@ -86,22 +83,25 @@ class HttpClient {
     }
   }
 
-  RetryInterceptor _buildRetryInterceptor() {
-    final evaluator = DefaultRetryEvaluator(defaultRetryableStatuses);
+  /// Builds the retry interceptor for [globalPolicy].
+  ///
+  /// The interceptor is installed unconditionally, even when retry is off
+  /// app-wide, because a single request can still opt in by attaching its own
+  /// [RetryPolicy]. Every decision is deferred to [evaluateRetry], which is
+  /// the only place that can see the per-request policy.
+  ///
+  /// [RetryInterceptor.retries] is therefore set to the [RetryPolicy]
+  /// ceiling rather than the configured attempt count: the library
+  /// short-circuits on that field *before* consulting the evaluator, so a
+  /// lower value would silently cap a request that asked for more.
+  RetryInterceptor _buildRetryInterceptor(RetryPolicy? globalPolicy) {
     return RetryInterceptor(
       dio: _dio,
       logPrint: kDebugMode ? log : null,
-      retries: 3,
-      retryDelays: const [
-        Duration(seconds: 1),
-        Duration(seconds: 2),
-        Duration(seconds: 3),
-      ],
-      retryEvaluator: (error, attempt) {
-        final method = error.requestOptions.method.toUpperCase();
-        if (!_idempotentMethods.contains(method)) return false;
-        return evaluator.evaluate(error, attempt);
-      },
+      retries: RetryPolicy.maxAttempts,
+      retryDelays: globalPolicy?.delays ?? kDefaultRetryDelays,
+      retryEvaluator: (error, attempt) =>
+          evaluateRetry(error, attempt, globalPolicy),
     );
   }
 

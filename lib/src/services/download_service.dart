@@ -2,6 +2,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
 
 import '../client/http_client.dart';
+import '../config/retry_policy.dart';
 import '../error/error_handler.dart';
 import '../mixins/network_service_mixin.dart';
 
@@ -28,9 +29,10 @@ class DownloadRequestService with NetworkServiceMixin {
     String lengthHeader = Headers.contentLengthHeader,
     Options? options,
     String? baseUrl,
+    RetryPolicy? retry,
   }) async {
     final conn = await ensureConnected();
-    final opts = withMobileTimeouts(options, conn);
+    final opts = attachRetryPolicy(withMobileTimeouts(options, conn), retry);
     final url = resolveUrl(urlPath, baseUrl);
 
     try {

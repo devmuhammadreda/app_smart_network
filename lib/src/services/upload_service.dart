@@ -4,6 +4,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
 
 import '../client/http_client.dart';
+import '../config/retry_policy.dart';
 import '../error/error_handler.dart';
 import '../mixins/network_service_mixin.dart';
 
@@ -31,9 +32,10 @@ class UploadRequestService with NetworkServiceMixin {
     CancelToken? cancelToken,
     ProgressCallback? onSendProgress,
     String? baseUrl,
+    RetryPolicy? retry,
   }) async {
     final conn = await ensureConnected();
-    final opts = withMobileTimeouts(options, conn);
+    final opts = attachRetryPolicy(withMobileTimeouts(options, conn), retry);
     final url = resolveUrl(path, baseUrl);
 
     try {

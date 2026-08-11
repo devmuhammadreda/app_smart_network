@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:app_smart_network/src/client/http_client.dart';
 import 'package:app_smart_network/src/config/network_config.dart';
+import 'package:app_smart_network/src/config/retry_policy.dart';
 import 'package:app_smart_network/src/interceptors/unauth_interceptor.dart';
 import 'package:dio/dio.dart';
 import 'package:dio_smart_retry/dio_smart_retry.dart';
@@ -162,6 +163,34 @@ void main() {
       expect(customIndex, lessThan(retryIndex));
       expect(retryIndex, lessThan(unauthIndex));
       expect(unauthIndex, lessThan(loggerIndex));
+    });
+
+    test(
+        'a request that opts out of retry reports exactly one onError',
+        () async {
+      final events = <String>[];
+      final client = HttpClient(NetworkConfig(
+        baseUrl: 'https://example.com',
+        // No backoff: the request opts out, so this is never waited on, but
+        // it keeps the test honest if that ever regresses.
+        retry: const RetryPolicy(delays: []),
+        interceptors: [_RecordingInterceptor(events)],
+      ));
+      addTearDown(client.dispose);
+      client.dio.httpClientAdapter = _FakeAdapter(statusCode: 503);
+
+      await expectLater(
+        client.dio.get<String>(
+          '/ping',
+          options: attachRetryPolicy(
+            Options(responseType: ResponseType.plain),
+            RetryPolicy.off,
+          ),
+        ),
+        throwsA(isA<DioException>()),
+      );
+
+      expect(events.where((e) => e == 'error'), hasLength(1));
     });
 
     test('default config registers the built-ins and nothing custom', () {

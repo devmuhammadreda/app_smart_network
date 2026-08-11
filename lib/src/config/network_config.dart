@@ -1,5 +1,7 @@
 import 'package:dio/dio.dart';
 
+import 'retry_policy.dart';
+
 /// Callback invoked when the server returns HTTP 401 Unauthorized.
 typedef OnUnauthorizedCallback = void Function();
 
@@ -48,6 +50,21 @@ class NetworkConfig {
   /// re-initialization can carry over stale state.
   final List<Interceptor> interceptors;
 
+  /// App-wide retry behaviour, or `null` to never retry.
+  ///
+  /// Defaults to [RetryPolicy] — three retries on idempotent methods with a
+  /// 1 s / 2 s / 3 s backoff — which is what the package has always done.
+  ///
+  /// Any single call can override this by passing its own policy:
+  ///
+  /// ```dart
+  /// await api.request(HttpMethod.post, '/pay', retry: RetryPolicy.off);
+  /// ```
+  ///
+  /// [RetryPolicy.delays] and [RetryPolicy.methods] are read from this
+  /// app-wide policy only; see [RetryPolicy] for why.
+  final RetryPolicy? retry;
+
   const NetworkConfig({
     required this.baseUrl,
     this.connectTimeout = const Duration(milliseconds: 30000),
@@ -56,5 +73,6 @@ class NetworkConfig {
     this.allowBadCertificate = false,
     this.onUnauthorized,
     this.interceptors = const [],
+    this.retry = const RetryPolicy(),
   });
 }
