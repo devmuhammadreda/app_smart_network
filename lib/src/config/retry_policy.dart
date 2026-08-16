@@ -143,6 +143,11 @@ bool evaluateRetry(
     return statusCode == null || policy.statuses.contains(statusCode);
   }
 
+  // A rejected TLS handshake is settled: replaying it re-presents the same
+  // certificate to the same host for the same verdict, and only multiplies
+  // the failure signal a pin failure is supposed to raise exactly once.
+  if (error.type == DioExceptionType.badCertificate) return false;
+
   // Transport-level failure: retry unless the caller cancelled or the payload
   // was malformed, neither of which a second attempt would fix.
   return error.type != DioExceptionType.cancel &&

@@ -1,3 +1,63 @@
+## 1.3.0
+
+### Features
+
+- **Certificate pinning** — `NetworkConfig` accepts an optional
+  `certificatePinning: CertificatePinningConfig(...)`. Pins are the base64
+  SHA-256 of a certificate's `SubjectPublicKeyInfo` in the conventional
+  `sha256/<base64>` form shared with HPKP and OkHttp's `CertificatePinner`.
+  Hashing the SPKI rather than the whole certificate means a pin survives
+  certificate renewal whenever the key pair is reused.
+- **Per-host configuration** — `pins` maps a host to its accepted pins;
+  `includeSubdomains` extends a host's pins to its subdomains; `enforce: false`
+  reports mismatches without blocking them, for a staged rollout.
+- **`onPinFailure` callback** — reports the host and the pins the server
+  actually presented, for telemetry.
+- **`CertificatePinningException`** — a pin failure is distinguishable from a
+  generic network error. It extends `ApiException`, so existing handlers keep
+  working, and carries the offending `host`. Messages are locale-aware in
+  English and Arabic; the presented pins are never placed in the message.
+- **New public exports** — `CertificatePinningConfig`,
+  `CertificatePinningException`, `OnPinFailureCallback`,
+  `kMinimumPinsPerHost`.
+
+### Fixes
+
+- **Certificate failures are no longer retried.** `DioExceptionType.badCertificate`
+  was previously treated as a retryable transport error, so a rejected TLS
+  handshake was replayed up to the configured attempt count. Replaying it
+  re-presents the same certificate to the same host for the same verdict, and
+  multiplied a security signal that should be raised once. This applies to all
+  certificate failures, pinned or not.
+
+### Changes
+
+- Pinning is **off by default**; `certificatePinning` defaults to `null` and the
+  package behaves exactly as it did in 1.2.0 when it is not set. `const
+  NetworkConfig(...)` call sites continue to compile.
+- Only hosts listed in `pins` are pinned. Unlisted hosts — analytics, crash
+  reporting, CDNs — fall through to normal TLS validation rather than failing
+  closed.
+- New dependencies: `asn1lib` (certificate parsing) and `crypto` (SHA-256).
+
+### Notes
+
+- **Every host needs at least two distinct pins.** A single pin means a lost or
+  rotated key bricks every installed app with no recovery path, so fewer than
+  two throws `ArgumentError` at startup. Keep the second key offline.
+- Pin format, pin count, and blank hosts are validated when
+  `CertificatePinningConfig` is constructed, so a typo fails at startup rather
+  than on the first API call in production.
+- `allowBadCertificate: true` combined with `certificatePinning` throws
+  `ArgumentError` when the client is built. The check lives there rather than in
+  `NetworkConfig`'s `const` constructor because a `const` constructor can only
+  `assert`, and asserts are stripped from release builds — exactly where an app
+  that looks pinned but is not would do the damage.
+- Pinning uses Dio's `validateCertificate`, which evaluates the leaf certificate
+  on every connection, rather than `badCertificateCallback`, which fires only
+  after chain validation has already failed.
+- Malformed or unparseable certificates are rejected, never treated as a pass.
+
 ## 1.2.0
 
 ### Features

@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 
+import 'certificate_pinning_config.dart';
 import 'retry_policy.dart';
 
 /// Callback invoked when the server returns HTTP 401 Unauthorized.
@@ -21,7 +22,35 @@ class NetworkConfig {
 
   /// Set to `true` to bypass SSL certificate validation.
   /// **Only use in development / debug builds.**
+  ///
+  /// Cannot be combined with [certificatePinning]; see that field.
   final bool allowBadCertificate;
+
+  /// SSL/TLS public-key pinning, or `null` (the default) for none.
+  ///
+  /// With `null` the package behaves exactly as it always has: normal chain
+  /// validation, no pinning. Supply a [CertificatePinningConfig] to additionally
+  /// require the leaf certificate's public key to match a known pin.
+  ///
+  /// ```dart
+  /// ApiService.initialize(NetworkConfig(
+  ///   baseUrl: 'https://api.example.com',
+  ///   certificatePinning: CertificatePinningConfig(
+  ///     pins: {
+  ///       'api.example.com': ['sha256/<current>', 'sha256/<backup>'],
+  ///     },
+  ///   ),
+  /// ));
+  /// ```
+  ///
+  /// Setting this together with [allowBadCertificate] throws [ArgumentError]
+  /// when the client is built: one disables validation while the other
+  /// tightens it, and silently accepting the pair would produce an app that
+  /// looks pinned but is not.
+  ///
+  /// Only hosts listed in [CertificatePinningConfig.pins] are pinned; every
+  /// other host the app talks to falls through to normal TLS validation.
+  final CertificatePinningConfig? certificatePinning;
 
   /// Called when the server responds with HTTP 401.
   final OnUnauthorizedCallback? onUnauthorized;
@@ -71,6 +100,7 @@ class NetworkConfig {
     this.receiveTimeout = const Duration(milliseconds: 30000),
     this.defaultHeaders,
     this.allowBadCertificate = false,
+    this.certificatePinning,
     this.onUnauthorized,
     this.interceptors = const [],
     this.retry = const RetryPolicy(),

@@ -63,3 +63,37 @@ class ApiException implements Exception {
     return 'Unknown Error';
   }
 }
+
+/// Thrown when a host's certificate did not match its configured SPKI pins.
+///
+/// Extends [ApiException] so existing `catch (e) { if (e is ApiException) }`
+/// handling keeps working, while `e is CertificatePinningException` separates a
+/// security event from an ordinary connectivity blip:
+///
+/// ```dart
+/// try {
+///   await ApiService.instance.request(HttpMethod.get, '/me');
+/// } on CertificatePinningException catch (e) {
+///   security.report('pin_failure', host: e.host);
+/// } on ApiException catch (e) {
+///   showSnackBar(e.message);
+/// }
+/// ```
+///
+/// [message] is deliberately generic. The pins the server actually presented
+/// are reported to [CertificatePinningConfig.onPinFailure] for telemetry and
+/// never placed here, where they could reach the screen.
+class CertificatePinningException extends ApiException {
+  /// Host whose certificate failed the pin check.
+  final String? host;
+
+  const CertificatePinningException(
+    String message, {
+    this.host,
+    super.originalError,
+  }) : super(message, 0, errorType: 'CertificatePinningFailed');
+
+  @override
+  String toString() =>
+      'CertificatePinningException: $message (Host: ${host ?? "unknown"})';
+}
