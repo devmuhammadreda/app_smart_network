@@ -56,6 +56,12 @@ class ErrorHandler {
           originalError: error,
         );
       case DioExceptionType.badCertificate:
+        // PinningInterceptor tags failures on pinned hosts so they surface as
+        // a security event rather than a generic TLS complaint.
+        final pinningFailure = error.error;
+        if (pinningFailure is CertificatePinningException) {
+          return pinningFailure;
+        }
         return ApiException(
           NetworkLocale.getErrorMessage('BadCertificate'),
           0,

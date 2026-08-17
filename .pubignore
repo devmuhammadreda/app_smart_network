@@ -1,0 +1,38 @@
+# Files excluded from the published package.
+#
+# IMPORTANT: this file *replaces* .gitignore for publishing — pub only falls
+# back to .gitignore when no .pubignore exists. Everything .gitignore excludes
+# therefore has to be repeated here, or build output lands in the archive.
+#
+# Without this file, v1.3.0 shipped docs/superpowers/ (internal planning and
+# design notes) to pub.dev: those are tracked in git, so .gitignore never
+# excluded them.
+
+# --- Internal planning, design and session notes -------------------------
+docs/superpowers/
+.superpowers/
+.claude/
+
+# --- Build output and local tooling state (mirrors .gitignore) -----------
+/build/
+/coverage/
+.dart_tool/
+.flutter-plugins-dependencies
+/pubspec.lock
+**/doc/api/
+migrate_working_dir/
+
+# --- Editor and OS cruft (mirrors .gitignore) ----------------------------
+.idea/
+.atom/
+.buildlog/
+.history
+.svn/
+*.iml
+*.ipr
+*.iws
+.DS_Store
+*.class
+*.log
+*.pyc
+*.swp
