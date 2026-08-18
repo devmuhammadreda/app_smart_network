@@ -45,28 +45,26 @@ void main() {
   });
 
   test('certificate pinning types are exported from the public barrel', () {
-    // Everything a consumer needs to configure and observe pinning must be
-    // reachable without depending on `dio` or on `src/` paths.
-    void onFailure(String host, List<String> presentedPins) {}
-    final OnPinFailureCallback typedCallback = onFailure;
-
+    // Everything a consumer needs to configure pinning must be reachable
+    // without depending on `dio`, on `http_certificate_pinning`, or on
+    // `src/` paths.
     final config = NetworkConfig(
       baseUrl: 'https://api.example.com',
       certificatePinning: CertificatePinningConfig(
-        pins: {
-          'api.example.com': [
-            'sha256/U1lYtAEMYq6Unbc802/QoAWjlMzc9sv4z+5DbEInlEI=',
-            'sha256/0QUH7apNYrGfDUVuwaNqWhFUhcpXXhpK2VtczeICUIY=',
-          ],
-        },
-        enforce: true,
-        includeSubdomains: true,
-        onPinFailure: typedCallback,
+        allowedSHAFingerprints: const [
+          'AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:'
+              'AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99',
+          '11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:'
+              '11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00',
+        ],
+        timeout: 30,
       ),
     );
 
     expect(config.certificatePinning, isA<CertificatePinningConfig>());
-    expect(kMinimumPinsPerHost, 2);
+    expect(config.certificatePinning!.timeout, 30);
+    expect(kMinimumFingerprints, 2);
+    expect(kSha256HexLength, 64);
   });
 
   test('CertificatePinningException is catchable as an ApiException', () {

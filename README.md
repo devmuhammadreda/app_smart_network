@@ -3,7 +3,7 @@
 A smart Flutter network package built on [Dio](https://pub.dev/packages/dio) with:
 
 - **Configurable retry** – retries idempotent requests (GET, PUT, DELETE) by default; tune or disable it app-wide, or override it on a single call
-- **Certificate pinning** – optional SPKI pinning per host, from hashes or from bundled certificates, with backup pins and staged rollout
+- **Certificate pinning** – optional SHA-256 certificate pinning on Android and iOS, backed by `http_certificate_pinning`
 - **Connectivity guard** – checks internet before every request; throws a clear offline error
 - **Mobile timeout** – extends receive-timeout automatically on cellular networks
 - **Locale-aware errors** – all error messages respect the active language (built-in **English & Arabic**, extensible)
@@ -67,7 +67,7 @@ if (ApiService.isInitialized) {
 | `onUnauthorized` | `OnUnauthorizedCallback?` | `null` | Invoked on HTTP 401 |
 | `interceptors` | `List<Interceptor>` | `const []` | Custom Dio interceptors added to the chain |
 | `retry` | `RetryPolicy?` | `RetryPolicy()` | App-wide retry behaviour; `null` disables retry |
-| `certificatePinning` | `CertificatePinningConfig?` | `null` | SSL public-key pinning; `null` disables pinning |
+| `certificatePinning` | `CertificatePinningConfig?` | `null` | SSL certificate pinning (Android/iOS); `null` disables pinning |
 
 ---
 
@@ -139,190 +139,91 @@ accepts an idempotency key.
 
 ## Certificate pinning
 
-Pinning is **off by default**. When enabled, the package additionally requires a
-host's leaf certificate to carry a known public key, so a forged certificate is
-rejected even if some CA in the device's trust store signed it.
+Pinning is **off by default**. When enabled, the package verifies the server's
+certificate against a list of known SHA-256 fingerprints before any request
+leaves the device, so a forged certificate — even one signed by a CA the device
+trusts — is refused.
+
+Verification is delegated to
+[`http_certificate_pinning`](https://pub.dev/packages/http_certificate_pinning).
+
+> **Android and iOS only.** `http_certificate_pinning` is a native plugin with
+> no web or desktop implementation. On any other platform the check cannot run,
+> and — because a certificate that was never checked has not been shown to
+> match — the request fails with a `CertificatePinningException` rather than
+> being waved through.
 
 ```dart
 ApiService.initialize(NetworkConfig(
   baseUrl: 'https://api.example.com',
   certificatePinning: CertificatePinningConfig(
-    pins: {
-      'api.example.com': [
-        'sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=', // current key
-        'sha256/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=', // backup key
-      ],
-    },
+    allowedSHAFingerprints: [
+      'AA:BB:CC:…',  // certificate in production today
+      'CC:DD:EE:…',  // successor certificate, already issued
+    ],
   ),
 ));
 ```
 
-### Generating a pin
+### Generating a fingerprint
 
-A pin is the base64 SHA-256 of the certificate's `SubjectPublicKeyInfo` — the
-same `sha256/…` format used by HPKP and OkHttp's `CertificatePinner`, so
-existing tooling and runbooks apply:
-
-```bash
-openssl s_client -connect api.example.com:443 -servername api.example.com < /dev/null 2>/dev/null \
-  | openssl x509 -pubkey -noout \
-  | openssl pkey -pubin -outform der \
-  | openssl dgst -sha256 -binary \
-  | openssl enc -base64
-```
-
-The digest covers the **public key**, not the whole certificate. A pin therefore
-keeps working across certificate renewal as long as the key pair is reused —
-unlike a whole-certificate hash, which breaks on every routine rotation.
-
-### From bundled certificates
-
-Instead of pasting hashes, ship the certificates as assets and let the package
-derive the pins. `fromAssets` reads and parses every file up front, so a wrong
-path or an unreadable certificate fails during `initialize()` rather than on the
-first request in production:
-
-```yaml
-# pubspec.yaml
-flutter:
-  assets:
-    - assets/certs/
-```
-
-```dart
-final pinning = await CertificatePinningConfig.fromAssets(
-  certificatePaths: {
-    'api.example.com': [
-      'assets/certs/api.example.com.pem',  // current certificate
-      'assets/certs/backup.pub.pem',       // backup key, no certificate yet
-    ],
-  },
-);
-
-ApiService.initialize(NetworkConfig(
-  baseUrl: 'https://api.example.com',
-  certificatePinning: pinning,
-));
-```
-
-Each asset must hold **exactly one** PEM block, in either of two forms:
-
-| PEM label | What it is | How the pin is derived |
-|-----------|------------|------------------------|
-| `CERTIFICATE` | A full X.509 certificate | The ASN.1 is walked to locate `SubjectPublicKeyInfo`, which is then hashed |
-| `PUBLIC KEY` | A bare `SubjectPublicKeyInfo` | Hashed directly — there is no certificate to walk |
-
-Both forms produce identical pins for the same key pair, so a certificate and a
-public key extracted from it are interchangeable — and, being the same key, they
-count as **one** pin, not two.
-
-`ArgumentError` naming the offending path is thrown when an asset is missing or
-unreadable, is not PEM, carries any other label, holds **more than one** PEM
-block (a chain file is refused rather than silently pinning whichever
-certificate comes first), or cannot be parsed as a certificate.
-
-`enforce`, `includeSubdomains` and `onPinFailure` behave exactly as they do on
-the unnamed constructor, and all the same validation applies — including the
-two-distinct-pins rule.
-
-#### Generating a backup keypair
-
-The `PUBLIC KEY` form exists so the mandatory backup pin can come from a key
-pair that has **no certificate yet** — pinning ships without waiting on a CA to
-issue anything:
+A fingerprint is the SHA-256 of the **whole DER certificate** — exactly what
+`openssl x509 -fingerprint -sha256` prints:
 
 ```bash
-# Generate the backup key and keep it OFFLINE. It must never reach the app,
-# the repository, or CI.
-openssl genrsa -out backup.key 2048
-
-# The public half is what ships, as an asset:
-openssl rsa -in backup.key -pubout -out backup.pub.pem
-
-# Its pin, should you want to verify what the package derived:
-openssl pkey -in backup.pub.pem -pubin -outform der \
-  | openssl dgst -sha256 -binary \
-  | openssl enc -base64
+openssl s_client -connect api.example.com:443 -servername api.example.com \
+  < /dev/null 2>/dev/null \
+  | openssl x509 -fingerprint -sha256 -noout
 ```
 
-When the current certificate has to be replaced, issue the new one against
-`backup.key`. Installed apps already trust that key, so the rotation is a
-server-side change instead of an app release.
+```
+sha256 Fingerprint=AA:BB:CC:DD:…:99
+```
 
-### ⚠️ Always ship a backup pin
+Paste the value after the `=`. Colons, whitespace and lower-case hex are all
+accepted — the config normalises to the bare uppercase hex the native check
+compares against, so the openssl output can go in verbatim.
 
-> **A single pin is an outage waiting to happen.** If that key is lost or has to
-> be rotated in a hurry, every installed copy of the app stops reaching your API
-> and no server-side change can fix it — only a new app release can, at store
-> review speed.
+### ⚠️ A whole-certificate pin dies with the certificate
+
+> The digest covers the **entire certificate**, so **renewal breaks the pin even
+> when the key pair is unchanged**. This is the one operational commitment
+> pinning asks of you:
 >
-> Generate a second key pair, compute its pin, and keep the key **offline**.
-> Ship both pins from day one so a rotation is a server-side change.
+> - Both entries must be certificates that **already exist** and whose renewal
+>   you control. A placeholder second entry is not a backup.
+> - Ship the successor's fingerprint **before** the current certificate
+>   expires, or every installed app stops connecting on renewal day with no
+>   recovery path short of a store release.
+> - Treat certificate renewal as a release-coordinated event, not a
+>   server-side detail.
 >
-> The package enforces this: fewer than two distinct pins for a host throws
+> The package enforces the floor: fewer than two distinct fingerprints throws
 > `ArgumentError` at startup.
+>
+> *Versions before 2.0.0 pinned the `SubjectPublicKeyInfo` instead, which
+> survived renewal on an unchanged key pair. See the migration note in
+> `CHANGELOG.md`.*
 
-### Options
+### CertificatePinningConfig
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `pins` | `Map<String, List<String>>` | required | Host → accepted `sha256/…` pins (min. 2 per host) |
-| `enforce` | `bool` | `true` | When `false`, mismatches are reported but allowed |
-| `includeSubdomains` | `bool` | `false` | Extend a host's pins to its subdomains |
-| `onPinFailure` | `OnPinFailureCallback?` | `null` | Called on every mismatch, for telemetry |
+| Field | Type | Default | Meaning |
+|---|---|---|---|
+| `allowedSHAFingerprints` | `List<String>` | required | Accepted SHA-256 certificate fingerprints (min. 2 distinct) |
+| `timeout` | `int` | `60` | Connection timeout for the check, in seconds; `0` uses the platform default |
 
-### Which hosts are pinned
+Every rule is checked in the constructor, so a malformed fingerprint fails at
+startup rather than on the first API call in production. Rejected: anything
+that is not 64 hex characters after stripping `:` and whitespace — including a
+SHA-1 fingerprint (40 characters) and a `sha256/…` base64 pin left over from
+1.x.
 
-Only the hosts you list. Everything else — analytics, crash reporting, Firebase,
-image CDNs — falls through to normal TLS validation untouched. Pinning does not
-fail closed on unknown hosts, because doing so would break every third-party
-service the app talks to.
+### Which requests are pinned
 
-With `includeSubdomains: true`, `example.com` also covers `api.example.com` and
-`a.b.example.com`, but never `notexample.com`. An exact host entry always wins
-over an inherited one.
-
-### Staged rollout
-
-Set `enforce: false` to measure impact before enforcing. Mismatches are reported
-to `onPinFailure` and the connection proceeds:
-
-```dart
-CertificatePinningConfig(
-  pins: {'api.example.com': [currentPin, backupPin]},
-  enforce: false, // report only — never ship this as the final state
-  onPinFailure: (host, presentedPins) {
-    analytics.log('pin_mismatch', {'host': host, 'pins': presentedPins});
-  },
-)
-```
-
-Watch the failure rate, confirm it is zero for legitimate traffic, then flip
-`enforce` back to `true`.
-
-### Handling a pin failure
-
-A pin failure is a **security event**, not a connectivity blip, and it arrives as
-a distinct exception type:
-
-```dart
-try {
-  await ApiService.instance.request(HttpMethod.get, '/me');
-} on CertificatePinningException catch (e) {
-  security.report('pin_failure', host: e.host); // e.host is the pinned host
-  showBlockingSecurityWarning();
-} on ApiException catch (e) {
-  showSnackBar(e.message);
-}
-```
-
-`CertificatePinningException` extends `ApiException`, so existing handlers keep
-working. Its `message` is deliberately generic and locale-aware; the pins the
-server actually presented go to `onPinFailure` for telemetry and are never put
-in a user-facing message.
-
-Pin failures are **never retried** — replaying a rejected handshake re-presents
-the same certificate for the same verdict.
+**All of them.** The check applies to every request this client makes, not to a
+chosen set of hosts. If the app also talks to hosts you do not control —
+analytics, crash reporting, an image CDN — point a separate `NetworkConfig` at
+them, or leave pinning off.
 
 ### Shielded and unshielded builds
 
@@ -334,7 +235,9 @@ const isShielded = bool.fromEnvironment('SHIELDED', defaultValue: true);
 ApiService.initialize(NetworkConfig(
   baseUrl: 'https://api.example.com',
   certificatePinning: isShielded
-      ? CertificatePinningConfig(pins: {'api.example.com': [currentPin, backupPin]})
+      ? CertificatePinningConfig(
+          allowedSHAFingerprints: [currentFingerprint, successorFingerprint],
+        )
       : null,
 ));
 ```
@@ -344,14 +247,45 @@ one disables validation while the other tightens it. The pair throws
 `ArgumentError` at startup rather than producing an app that looks pinned but is
 not.
 
+### Handling a pin failure
+
+A pin failure is a **security event**, not a connectivity blip, and it arrives as
+its own exception type:
+
+```dart
+try {
+  await ApiService.instance.request(HttpMethod.get, '/me');
+} on CertificatePinningException catch (e) {
+  security.report('pin_failure', host: e.host);
+  showBlockingScreen();
+} on ApiException catch (e) {
+  showSnackBar(e.message);
+}
+```
+
+`CertificatePinningException` extends `ApiException`, so existing handlers keep
+working. Its `message` is deliberately generic and locale-aware; the fingerprint
+the server presented is never put where it could reach the screen.
+
+Pin failures are **never retried** — replaying a rejected handshake re-presents
+the same certificate for the same verdict.
+
 ### What is validated, and when
 
-Pinning runs through Dio's `validateCertificate` hook, which evaluates the leaf
-certificate on **every connection** — not `badCertificateCallback`, which fires
-only after chain validation has already failed and so could never add pinning on
-top of an otherwise-valid certificate.
+The check runs in `onRequest`, **before** the request is sent, over a separate
+connection to the same host. Two consequences worth knowing:
 
-Malformed or unparseable certificates are **rejected**, never treated as a pass.
+- It costs one extra TLS handshake per request.
+- It is not the same connection the request then rides on, so it proves the
+  host was presenting a pinned certificate a moment ago rather than proving it
+  for this exact connection.
+
+The pinning interceptor sits at the head of the chain, ahead of your own
+interceptors, retry and the 401 handler, and rejects without consulting them —
+so a pin failure can never be retried, nor mistaken for an expired session.
+
+A check that cannot be completed — an unreachable host, a platform without the
+plugin — is reported as a failure, never as a pass.
 
 ---
 
@@ -766,5 +700,4 @@ locale-aware messages, EN ↔ AR language toggle, and a 404 error demo.
 | [connectivity_plus](https://pub.dev/packages/connectivity_plus) | Network state |
 | [dio_smart_retry](https://pub.dev/packages/dio_smart_retry) | Retry interceptor |
 | [pretty_dio_logger](https://pub.dev/packages/pretty_dio_logger) | Debug logging |
-| [asn1lib](https://pub.dev/packages/asn1lib) | Certificate parsing for pinning |
-| [crypto](https://pub.dev/packages/crypto) | SHA-256 for SPKI pins |
+| [http_certificate_pinning](https://pub.dev/packages/http_certificate_pinning) | Certificate pinning (Android/iOS) |

@@ -26,19 +26,18 @@ class NetworkConfig {
   /// Cannot be combined with [certificatePinning]; see that field.
   final bool allowBadCertificate;
 
-  /// SSL/TLS public-key pinning, or `null` (the default) for none.
+  /// SSL/TLS certificate pinning, or `null` (the default) for none.
   ///
   /// With `null` the package behaves exactly as it always has: normal chain
-  /// validation, no pinning. Supply a [CertificatePinningConfig] to additionally
-  /// require the leaf certificate's public key to match a known pin.
+  /// validation, no pinning. Supply a [CertificatePinningConfig] to
+  /// additionally require the server's certificate to match a known SHA-256
+  /// fingerprint before any request is sent.
   ///
   /// ```dart
   /// ApiService.initialize(NetworkConfig(
   ///   baseUrl: 'https://api.example.com',
   ///   certificatePinning: CertificatePinningConfig(
-  ///     pins: {
-  ///       'api.example.com': ['sha256/<current>', 'sha256/<backup>'],
-  ///     },
+  ///     allowedSHAFingerprints: ['AA:BB:...', 'CC:DD:...'],
   ///   ),
   /// ));
   /// ```
@@ -48,8 +47,9 @@ class NetworkConfig {
   /// tightens it, and silently accepting the pair would produce an app that
   /// looks pinned but is not.
   ///
-  /// Only hosts listed in [CertificatePinningConfig.pins] are pinned; every
-  /// other host the app talks to falls through to normal TLS validation.
+  /// Pinning applies to **every** request this client makes, not to a chosen
+  /// set of hosts — point a separate `NetworkConfig` at anything that needs
+  /// different pins. Requires Android or iOS; see [CertificatePinningConfig].
   final CertificatePinningConfig? certificatePinning;
 
   /// Called when the server responds with HTTP 401.

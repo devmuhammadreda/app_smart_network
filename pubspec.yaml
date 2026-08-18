@@ -1,12 +1,12 @@
 name: app_smart_network
-description: "A smart Flutter network package with built-in error handling, configurable retry, optional SSL certificate pinning, and multilingual error messages (en/ar)."
-version: 1.4.0
+description: "A smart Flutter network package with built-in error handling, configurable retry, optional SSL certificate pinning (Android/iOS), and multilingual error messages (en/ar)."
+version: 2.0.0
 repository: https://github.com/devmuhammadreda/app_smart_network
 homepage: https://github.com/devmuhammadreda/app_smart_network
 
 environment:
-  sdk: ^3.0.0
-  flutter: ">=3.0.0"
+  sdk: ^3.5.4
+  flutter: ">=3.3.0"
 
 dependencies:
   flutter:
@@ -15,8 +15,7 @@ dependencies:
   connectivity_plus: ^7.3.1
   pretty_dio_logger: ^1.4.0
   dio_smart_retry: ^7.0.1
-  asn1lib: ^1.5.3
-  crypto: ^3.0.0
+  http_certificate_pinning: ^3.0.2
 
 dev_dependencies:
   flutter_test:

@@ -1,243 +1,141 @@
 import 'dart:collection';
-import 'dart:convert';
 
-import 'package:flutter/services.dart';
-
-import '../security/pem_key_loader.dart';
-import '../security/spki_fingerprint.dart';
-
-/// Reports a pin mismatch for [host].
+/// Minimum fingerprints a configuration must carry.
 ///
-/// [presentedPins] holds the SPKI pins actually offered by the server, for
-/// telemetry. It is empty when the certificate could not be parsed at all.
-/// **Never surface these values to the user** — they belong in a security
-/// event, not an error message.
-typedef OnPinFailureCallback = void Function(
-  String host,
-  List<String> presentedPins,
-);
+/// One fingerprint means the app stops working the moment that certificate is
+/// replaced, with no recovery path short of a store release.
+const int kMinimumFingerprints = 2;
 
-/// Minimum pins per host. One pin means a lost or rotated key bricks every
-/// installed app with no recovery path.
-const int kMinimumPinsPerHost = 2;
+/// Number of hex characters in a SHA-256 fingerprint (32 bytes).
+const int kSha256HexLength = 64;
 
-/// SSL/TLS public-key pinning, keyed by host.
+/// Matches a fingerprint once separators and whitespace have been stripped.
+final RegExp _hexOnly = RegExp(r'^[0-9A-F]+$');
+
+/// SSL/TLS certificate pinning, backed by `http_certificate_pinning`.
 ///
-/// Pins are the base64 SHA-256 of a certificate's `SubjectPublicKeyInfo`, in
-/// the conventional `sha256/<base64>` form shared with HPKP and OkHttp's
-/// `CertificatePinner`. Generate one with:
+/// Pins are the **SHA-256 of the whole DER certificate** — the value printed
+/// by `openssl x509 -fingerprint -sha256`. Colons and whitespace are optional
+/// and case does not matter; everything is normalised to bare uppercase hex.
 ///
 /// ```bash
 /// openssl s_client -connect api.example.com:443 -servername api.example.com \
 ///   < /dev/null 2>/dev/null \
-///   | openssl x509 -pubkey -noout \
-///   | openssl pkey -pubin -outform der \
-///   | openssl dgst -sha256 -binary \
-///   | openssl enc -base64
+///   | openssl x509 -fingerprint -sha256 -noout
 /// ```
 ///
 /// ```dart
 /// ApiService.initialize(NetworkConfig(
 ///   baseUrl: 'https://api.example.com',
 ///   certificatePinning: CertificatePinningConfig(
-///     pins: {
-///       'api.example.com': [
-///         'sha256/<current key>',
-///         'sha256/<backup key, held offline>',
-///       ],
-///     },
+///     allowedSHAFingerprints: [
+///       'AA:BB:...',  // certificate in production today
+///       'CC:DD:...',  // successor certificate, already issued
+///     ],
 ///   ),
 /// ));
 /// ```
 ///
-/// Because the SPKI — not the whole certificate — is hashed, a pin keeps
-/// working across certificate renewal as long as the key pair is reused.
+/// ## A whole-certificate pin dies with the certificate
 ///
-/// Every rule here is checked at construction rather than on the first
-/// request, so a mistake fails the build instead of the first API call in
-/// production.
+/// The digest covers the entire certificate, so **renewal breaks the pin even
+/// when the key pair is reused**. Both entries must therefore be certificates
+/// that already exist and whose renewal you control — a placeholder second
+/// entry is not a backup. Ship the successor's fingerprint before the current
+/// certificate expires, or the app stops connecting on renewal day.
+///
+/// ## Android and iOS only
+///
+/// `http_certificate_pinning` is a native plugin with no web or desktop
+/// implementation. On any other platform the pinning check cannot run and the
+/// request fails; this package is intended for mobile targets.
+///
+/// ## How the check runs
+///
+/// Verification happens in `onRequest` over a separate connection to the same
+/// host, before the real request goes out. It costs one extra TLS handshake
+/// per request and is not the same connection the request rides on.
+///
+/// Every rule below is checked at construction rather than on the first
+/// request, so a mistake fails at startup instead of in production.
 class CertificatePinningConfig {
-  /// Host to accepted SPKI pins, lower-cased and unmodifiable.
-  final Map<String, List<String>> pins;
+  /// Accepted certificate fingerprints, normalised to bare uppercase hex and
+  /// unmodifiable.
+  final List<String> allowedSHAFingerprints;
 
-  /// When `false`, mismatches are reported to [onPinFailure] but the
-  /// connection proceeds.
+  /// Connection timeout for the pinning check, in seconds.
   ///
-  /// Intended for a staged rollout: ship with `false` to measure how often
-  /// real users would have been disconnected, then flip it on. **Never ship
-  /// `false` as the final state** — it collects pin failures without
-  /// preventing any of them.
-  final bool enforce;
+  /// `0` leaves the platform default in place.
+  final int timeout;
 
-  /// Whether a host's pins also cover its subdomains.
+  /// Creates a pinning configuration, validating every fingerprint.
   ///
-  /// With `example.com` pinned, this extends the pins to `api.example.com`
-  /// but never to `notexample.com`. An exact host entry always wins over an
-  /// inherited one.
-  final bool includeSubdomains;
-
-  /// Invoked on every pin mismatch, whether or not [enforce] blocks it.
-  final OnPinFailureCallback? onPinFailure;
-
-  /// Creates a pinning configuration, validating every pin.
-  ///
-  /// Throws [ArgumentError] when [pins] is empty, when any host carries fewer
-  /// than [kMinimumPinsPerHost] distinct pins, or when any pin is not a
-  /// well-formed `sha256/<base64 of 32 bytes>` string.
+  /// Throws [ArgumentError] when [allowedSHAFingerprints] holds fewer than
+  /// [kMinimumFingerprints] distinct values, when any entry is not a
+  /// well-formed SHA-256 hex digest, or when [timeout] is negative.
   CertificatePinningConfig({
-    required Map<String, List<String>> pins,
-    this.enforce = true,
-    this.includeSubdomains = false,
-    this.onPinFailure,
-  }) : pins = _validate(pins);
+    required List<String> allowedSHAFingerprints,
+    this.timeout = 60,
+  }) : allowedSHAFingerprints = _validate(allowedSHAFingerprints, timeout);
 
-  /// Builds a configuration from certificates bundled as Flutter assets,
-  /// deriving each pin instead of taking a hand-pasted hash.
-  ///
-  /// [certificatePaths] maps a host to the asset paths pinning it. Each asset
-  /// is a single PEM block, either of:
-  ///
-  /// * `-----BEGIN CERTIFICATE-----` — an X.509 certificate, whose
-  ///   `SubjectPublicKeyInfo` is located by walking the ASN.1.
-  /// * `-----BEGIN PUBLIC KEY-----` — a bare `SubjectPublicKeyInfo`, hashed
-  ///   directly.
-  ///
-  /// The second form is what lets the mandatory backup pin come from a keypair
-  /// that has no certificate yet, so pinning can ship without waiting on a CA:
-  ///
-  /// ```bash
-  /// openssl genrsa -out backup.key 2048           # keep offline
-  /// openssl rsa -in backup.key -pubout -out backup.pub.pem
-  /// ```
-  ///
-  /// ```dart
-  /// final pinning = await CertificatePinningConfig.fromAssets(
-  ///   certificatePaths: {
-  ///     'api.example.com': [
-  ///       'assets/certs/api.example.com.pem',
-  ///       'assets/certs/backup.pub.pem',
-  ///     ],
-  ///   },
-  /// );
-  /// ApiService.initialize(NetworkConfig(
-  ///   baseUrl: 'https://api.example.com',
-  ///   certificatePinning: pinning,
-  /// ));
-  /// ```
-  ///
-  /// Every asset is read and parsed here, so a bad path or an unreadable
-  /// certificate fails during `initialize()` rather than on the first request
-  /// in production.
-  ///
-  /// Throws [ArgumentError] naming the offending path when an asset is missing
-  /// or unreadable, is not PEM, carries a label other than the two above,
-  /// holds more than one PEM block, or cannot be parsed as a certificate. The
-  /// derived pins then go through the same validation as the unnamed
-  /// constructor, so the two-distinct-pins rule still applies — note that a
-  /// certificate and its own extracted public key collapse to a single pin.
-  ///
-  /// [bundle] defaults to [rootBundle]; inject one in tests.
-  static Future<CertificatePinningConfig> fromAssets({
-    required Map<String, List<String>> certificatePaths,
-    bool enforce = true,
-    bool includeSubdomains = false,
-    OnPinFailureCallback? onPinFailure,
-    AssetBundle? bundle,
-  }) async {
-    final source = bundle ?? rootBundle;
-    final derived = <String, List<String>>{};
-
-    for (final entry in certificatePaths.entries) {
-      final pins = <String>[];
-      for (final path in entry.value) {
-        pins.add(await spkiPinFromPemAsset(source, path));
-      }
-      derived[entry.key] = pins;
+  static List<String> _validate(List<String> fingerprints, int timeout) {
+    if (timeout < 0) {
+      throw ArgumentError.value(
+        timeout,
+        'timeout',
+        'Certificate pinning timeout cannot be negative. Use 0 for the '
+            'platform default.',
+      );
     }
 
-    // Delegate so every rule the unnamed constructor enforces still holds;
-    // this factory only changes where the pins come from.
-    return CertificatePinningConfig(
-      pins: derived,
-      enforce: enforce,
-      includeSubdomains: includeSubdomains,
-      onPinFailure: onPinFailure,
-    );
+    if (fingerprints.isEmpty) {
+      throw ArgumentError.value(
+        fingerprints,
+        'allowedSHAFingerprints',
+        'Certificate pinning was configured with no fingerprints. Remove '
+            'certificatePinning entirely, or add at least '
+            '$kMinimumFingerprints — an empty list produces an app that looks '
+            'pinned but is not.',
+      );
+    }
+
+    final normalized = fingerprints.map(_normalize).toList();
+
+    if (normalized.toSet().length < kMinimumFingerprints) {
+      throw ArgumentError.value(
+        fingerprints,
+        'allowedSHAFingerprints',
+        'Certificate pinning needs at least $kMinimumFingerprints distinct '
+            'fingerprints, got ${normalized.toSet().length}. The second must '
+            'be the successor certificate: a whole-certificate pin stops '
+            'matching the day the server renews, and with one pin that bricks '
+            'every installed app with no recovery path.',
+      );
+    }
+
+    return UnmodifiableListView(normalized);
   }
 
-  static Map<String, List<String>> _validate(Map<String, List<String>> pins) {
-    if (pins.isEmpty) {
+  /// Strips separators and whitespace, then upper-cases.
+  ///
+  /// `openssl` prints colon-separated pairs while the native check compares
+  /// bare hex, so accepting either form removes a silent-mismatch trap.
+  static String _normalize(String fingerprint) {
+    final stripped = fingerprint
+        .replaceAll(RegExp(r'[\s:]'), '')
+        .toUpperCase();
+
+    if (stripped.length != kSha256HexLength || !_hexOnly.hasMatch(stripped)) {
       throw ArgumentError.value(
-        pins,
-        'pins',
-        'Certificate pinning was configured with no pins. Remove '
-            'certificatePinning entirely, or add at least one host — an empty '
-            'map produces an app that looks pinned but is not.',
+        fingerprint,
+        'allowedSHAFingerprints',
+        'Fingerprint must be a SHA-256 digest: $kSha256HexLength hex '
+            'characters, optionally colon-separated. Got '
+            '${stripped.length} character(s) after stripping separators. '
+            'Generate one with: openssl x509 -fingerprint -sha256 -noout',
       );
     }
 
-    final validated = <String, List<String>>{};
-
-    for (final entry in pins.entries) {
-      final host = entry.key.trim().toLowerCase();
-      if (host.isEmpty) {
-        throw ArgumentError.value(
-          entry.key,
-          'pins',
-          'Certificate pinning host names cannot be blank.',
-        );
-      }
-
-      final hostPins = List<String>.unmodifiable(entry.value);
-      for (final pin in hostPins) {
-        _validatePin(pin, host);
-      }
-
-      if (hostPins.toSet().length < kMinimumPinsPerHost) {
-        throw ArgumentError.value(
-          entry.value,
-          'pins',
-          'Host "$host" needs at least $kMinimumPinsPerHost distinct pins, '
-              'got ${hostPins.toSet().length}. The second must be a backup '
-              'key held offline: with a single pin, losing or rotating that '
-              'key bricks every installed app with no recovery path.',
-        );
-      }
-
-      validated[host] = hostPins;
-    }
-
-    return UnmodifiableMapView(validated);
-  }
-
-  static void _validatePin(String pin, String host) {
-    if (!pin.startsWith(kPinPrefix)) {
-      throw ArgumentError.value(
-        pin,
-        'pins',
-        'Pin for host "$host" must start with "$kPinPrefix".',
-      );
-    }
-
-    final encoded = pin.substring(kPinPrefix.length);
-    final List<int> digest;
-    try {
-      digest = base64.decode(encoded);
-    } on FormatException {
-      throw ArgumentError.value(
-        pin,
-        'pins',
-        'Pin for host "$host" is not valid base64 after "$kPinPrefix".',
-      );
-    }
-
-    if (digest.length != kSha256DigestLength) {
-      throw ArgumentError.value(
-        pin,
-        'pins',
-        'Pin for host "$host" decodes to ${digest.length} bytes; a SHA-256 '
-            'pin is exactly $kSha256DigestLength.',
-      );
-    }
+    return stripped;
   }
 }

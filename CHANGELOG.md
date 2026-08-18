@@ -1,3 +1,81 @@
+## 2.0.0
+
+### Breaking changes
+
+Certificate pinning is now delegated to
+[`http_certificate_pinning`](https://pub.dev/packages/http_certificate_pinning)
+instead of the package's own SPKI implementation. Everything outside pinning is
+unchanged; apps that do not set `certificatePinning` need no code changes beyond
+the SDK bump.
+
+- **Pins are now whole-certificate SHA-256 fingerprints, not SPKI hashes.**
+  `sha256/<base64>` values from 1.x are rejected at construction.
+- **`CertificatePinningConfig` is reshaped**: `pins` (a per-host map) becomes
+  `allowedSHAFingerprints` (a flat list applied to every request), and a new
+  `timeout` replaces nothing.
+- **Removed**: `CertificatePinningConfig.fromAssets()`, `enforce`,
+  `includeSubdomains`, `onPinFailure`, the `OnPinFailureCallback` typedef, and
+  the `kMinimumPinsPerHost` constant (now `kMinimumFingerprints`).
+- **Pinning now requires Android or iOS.** The plugin has no web or desktop
+  implementation; on other platforms the check cannot run and the request fails
+  rather than silently passing.
+- **Pinning applies to every request**, not to a chosen set of hosts. Point a
+  separate `NetworkConfig` at any host that must not be pinned.
+- **Minimum SDK raised** to Dart `^3.5.4` / Flutter `>=3.3.0`, as required by
+  `http_certificate_pinning`.
+- **Dependencies**: `asn1lib` and `crypto` dropped; `http_certificate_pinning`
+  added.
+
+### Migration
+
+Replace each SPKI pin with the SHA-256 fingerprint of the certificate itself:
+
+```bash
+openssl s_client -connect api.example.com:443 -servername api.example.com \
+  < /dev/null 2>/dev/null \
+  | openssl x509 -fingerprint -sha256 -noout
+```
+
+```dart
+// 1.x
+CertificatePinningConfig(
+  pins: {
+    'api.example.com': ['sha256/<current>', 'sha256/<backup>'],
+  },
+  includeSubdomains: true,
+)
+
+// 2.0.0
+CertificatePinningConfig(
+  allowedSHAFingerprints: [
+    'AA:BB:CC:...',  // certificate in production today
+    'CC:DD:EE:...',  // successor certificate, already issued
+  ],
+)
+```
+
+> **⚠️ Operational change, not just an API one.** A whole-certificate
+> fingerprint stops matching the day the certificate is renewed, **even when
+> the key pair is reused** — the 1.x SPKI pin survived renewal, this one does
+> not. Both fingerprints must therefore be certificates that already exist and
+> whose renewal you control, and the successor's fingerprint has to ship before
+> the current certificate expires. Plan certificate renewal as a
+> release-coordinated event.
+
+For a staged rollout, previously `enforce: false`, gate the whole
+`certificatePinning` field on a flag instead and watch for
+`CertificatePinningException` — see "Shielded and unshielded builds" in the
+README.
+
+### Unchanged
+
+- `CertificatePinningException` — same type, same `host` field, still extends
+  `ApiException`, still locale-aware and never carrying the presented
+  fingerprint.
+- `allowBadCertificate` combined with `certificatePinning` still throws
+  `ArgumentError` at startup.
+- Pin failures are still never retried, and still bypass the 401 handler.
+
 ## 1.4.0
 
 ### Features

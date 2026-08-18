@@ -64,7 +64,7 @@ class ApiException implements Exception {
   }
 }
 
-/// Thrown when a host's certificate did not match its configured SPKI pins.
+/// Thrown when a host's certificate did not match its configured fingerprints.
 ///
 /// Extends [ApiException] so existing `catch (e) { if (e is ApiException) }`
 /// handling keeps working, while `e is CertificatePinningException` separates a
@@ -80,9 +80,13 @@ class ApiException implements Exception {
 /// }
 /// ```
 ///
-/// [message] is deliberately generic. The pins the server actually presented
-/// are reported to [CertificatePinningConfig.onPinFailure] for telemetry and
-/// never placed here, where they could reach the screen.
+/// Also thrown when the pinning check could not be completed at all — an
+/// unreachable host, or a platform without the native plugin. A certificate
+/// that was never checked has not been shown to match, so it is reported as a
+/// failure rather than waved through.
+///
+/// [message] is deliberately generic: it is user-facing, and the fingerprint
+/// the server presented belongs in a security event, not on the screen.
 class CertificatePinningException extends ApiException {
   /// Host whose certificate failed the pin check.
   final String? host;

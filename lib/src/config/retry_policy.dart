@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:dio_smart_retry/dio_smart_retry.dart'
     show defaultRetryableStatuses;
+import 'package:http_certificate_pinning/http_certificate_pinning.dart';
 
 /// Key under which a per-request [RetryPolicy] travels on `Options.extra`.
 ///
@@ -145,8 +146,14 @@ bool evaluateRetry(
 
   // A rejected TLS handshake is settled: replaying it re-presents the same
   // certificate to the same host for the same verdict, and only multiplies
-  // the failure signal a pin failure is supposed to raise exactly once.
+  // the failure signal a pin failure is supposed to raise exactly once. The
+  // pinning check runs in `onRequest` and so arrives typed `unknown`, which
+  // is why the payload is inspected as well as the type.
   if (error.type == DioExceptionType.badCertificate) return false;
+  if (error.error is CertificateNotVerifiedException ||
+      error.error is CertificateCouldNotBeVerifiedException) {
+    return false;
+  }
 
   // Transport-level failure: retry unless the caller cancelled or the payload
   // was malformed, neither of which a second attempt would fix.

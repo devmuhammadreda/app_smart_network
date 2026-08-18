@@ -1,7 +1,7 @@
 /// A smart Flutter network package built on [Dio] with:
 /// - Configurable retry, app-wide or per request (idempotent methods by
 ///   default)
-/// - Optional SPKI certificate pinning, per host
+/// - Optional SHA-256 certificate pinning on Android and iOS
 /// - Connectivity check before every request
 /// - Extended receive-timeout on mobile networks
 /// - Built-in locale-aware error messages (English & Arabic)

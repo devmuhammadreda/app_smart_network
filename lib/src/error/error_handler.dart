@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:http_certificate_pinning/http_certificate_pinning.dart';
 
 import '../i18n/network_locale.dart';
 import 'exceptions.dart';
@@ -24,6 +25,12 @@ class ErrorHandler {
   }
 
   static ApiException _handleDioError(DioException error) {
+    // Checked ahead of the switch because the pinning check runs in
+    // `onRequest`, so its rejection carries `DioExceptionType.unknown` — the
+    // type says nothing about what actually happened.
+    final pinningFailure = _asPinningFailure(error);
+    if (pinningFailure != null) return pinningFailure;
+
     switch (error.type) {
       case DioExceptionType.connectionTimeout:
         return ApiException(
@@ -56,12 +63,6 @@ class ErrorHandler {
           originalError: error,
         );
       case DioExceptionType.badCertificate:
-        // PinningInterceptor tags failures on pinned hosts so they surface as
-        // a security event rather than a generic TLS complaint.
-        final pinningFailure = error.error;
-        if (pinningFailure is CertificatePinningException) {
-          return pinningFailure;
-        }
         return ApiException(
           NetworkLocale.getErrorMessage('BadCertificate'),
           0,
@@ -85,6 +86,32 @@ class ErrorHandler {
           originalError: error,
         );
     }
+  }
+
+  /// Re-types a `http_certificate_pinning` rejection as a security event.
+  ///
+  /// The package rejects with a bare [DioException] carrying one of its own
+  /// exception types, which is indistinguishable from any other failure until
+  /// the payload is inspected. Returning a [CertificatePinningException] lets
+  /// the consuming app catch a pin failure specifically instead of treating it
+  /// as an ordinary connectivity blip.
+  ///
+  /// [CertificateCouldNotBeVerifiedException] covers the check itself failing
+  /// to complete — an unreachable host, a platform without the plugin. It is
+  /// reported as a pinning failure too: the certificate has not been shown to
+  /// match, and treating "could not check" as a pass would defeat pinning.
+  static CertificatePinningException? _asPinningFailure(DioException error) {
+    final cause = error.error;
+    if (cause is! CertificateNotVerifiedException &&
+        cause is! CertificateCouldNotBeVerifiedException) {
+      return null;
+    }
+
+    return CertificatePinningException(
+      NetworkLocale.getErrorMessage('CertificatePinningFailed'),
+      host: error.requestOptions.uri.host,
+      originalError: error,
+    );
   }
 
   static ApiException _handleStatusCodeError(DioException error) {

@@ -6,14 +6,13 @@ import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:dio_smart_retry/dio_smart_retry.dart';
 import 'package:flutter/foundation.dart';
+import 'package:http_certificate_pinning/http_certificate_pinning.dart';
 import 'package:pretty_dio_logger/pretty_dio_logger.dart';
 
+import '../config/certificate_pinning_config.dart';
 import '../config/network_config.dart';
 import '../config/retry_policy.dart';
-import '../i18n/network_locale.dart';
-import '../interceptors/pinning_interceptor.dart';
 import '../interceptors/unauth_interceptor.dart';
-import '../security/certificate_pinner.dart';
 
 // ── Background JSON decoding ───────────────────────────────────────────────
 
@@ -40,7 +39,7 @@ class HttpClient {
   }
 
   void _setup(NetworkConfig config) {
-    final pinner = _buildPinner(config);
+    final pinning = _resolvePinning(config);
 
     _dio.options = BaseOptions(
       baseUrl: config.baseUrl,
@@ -76,10 +75,15 @@ class HttpClient {
     // regardless of interceptor order, so onRequest is always seen once per
     // attempt no matter where consumers sit.
     _dio.interceptors.addAll([
-      if (pinner != null)
-        PinningInterceptor(
-          pinner,
-          () => NetworkLocale.getErrorMessage('CertificatePinningFailed'),
+      if (pinning != null)
+        CertificatePinningInterceptor(
+          allowedSHAFingerprints: pinning.allowedSHAFingerprints,
+          timeout: pinning.timeout,
+          // Leave the rest of the chain out of it: a pin failure is terminal,
+          // so it must not reach retry (which would re-run the handshake for
+          // the same verdict) or the 401 handler (which would read a security
+          // event as an expired session).
+          callFollowingErrorInterceptor: false,
         ),
       ...config.interceptors,
       _buildRetryInterceptor(config.retry),
@@ -87,29 +91,23 @@ class HttpClient {
       if (kDebugMode) _buildLoggerInterceptor(),
     ]);
 
-    // The two settings are mutually exclusive (see _buildPinner), so this is
-    // one adapter configured one way or the other, never both.
+    // Mutually exclusive with pinning (see _resolvePinning), so this only
+    // ever fires on an unpinned client.
     if (config.allowBadCertificate) {
       (_dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient =
           () => io.HttpClient()..badCertificateCallback = (_, __, ___) => true;
-    } else if (pinner != null) {
-      // validateCertificate, not badCertificateCallback: the latter fires only
-      // once default chain validation has already failed, so it can never add
-      // pinning on top of an otherwise-valid certificate. validateCertificate
-      // evaluates the leaf on every connection, which is what pinning needs.
-      (_dio.httpClientAdapter as IOHttpClientAdapter).validateCertificate =
-          pinner.validate;
     }
   }
 
-  /// Returns the pinner for [config], or `null` when pinning is off.
+  /// Returns the pinning configuration for [config], or `null` when pinning
+  /// is off.
   ///
   /// Throws [ArgumentError] when pinning is combined with
   /// [NetworkConfig.allowBadCertificate]. The check lives here rather than in
   /// `NetworkConfig`'s const constructor because a const constructor can only
   /// `assert`, and asserts are stripped from release builds — exactly where
   /// shipping an app that looks pinned but is not would do the damage.
-  CertificatePinner? _buildPinner(NetworkConfig config) {
+  CertificatePinningConfig? _resolvePinning(NetworkConfig config) {
     final pinning = config.certificatePinning;
     if (pinning == null) return null;
 
@@ -124,7 +122,7 @@ class HttpClient {
       );
     }
 
-    return CertificatePinner(pinning);
+    return pinning;
   }
 
   /// Builds the retry interceptor for [globalPolicy].
