@@ -1,3 +1,25 @@
+## 2.1.0
+
+### Changed
+
+- **`CertificatePinningConfig` now accepts a single fingerprint.** The floor
+  drops from two distinct pins to one (`kMinimumFingerprints` is now `1`);
+  an empty list still throws. Environments with no successor certificate to
+  name — a self-signed staging host, or one rotated in lockstep with the app —
+  can now pin without inventing a second value.
+- **Repeated fingerprints are collapsed instead of rejected.** Entries that
+  normalise to the same digest are one pin, so `allowedSHAFingerprints` stores
+  it once, de-duplicated in the order given.
+
+Existing two-pin configurations are unaffected; this only widens what
+constructs.
+
+> The renewal caveat is unchanged and now rests on you rather than the
+> constructor: a whole-certificate pin stops matching the day the server
+> renews, so a single-pin production app goes dark on renewal day with no fix
+> short of a store release. Pin the current certificate **and** its successor
+> for anything facing users.
+
 ## 2.0.0
 
 ### Breaking changes

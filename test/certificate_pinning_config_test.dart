@@ -110,30 +110,24 @@ void main() {
       );
     });
 
-    test('rejects a single fingerprint, naming the renewal risk', () {
-      expect(
-        () => CertificatePinningConfig(
-          allowedSHAFingerprints: const [kPrimaryBare],
-        ),
-        throwsA(
-          isA<ArgumentError>().having(
-            (e) => e.message,
-            'message',
-            allOf(contains('at least 2'), contains('renews')),
-          ),
-        ),
+    test('accepts a single fingerprint', () {
+      // Environments without a successor certificate — a self-signed staging
+      // host, or one rotated in lockstep with the app — pin with one value.
+      final config = CertificatePinningConfig(
+        allowedSHAFingerprints: const [kPrimaryBare],
       );
+
+      expect(config.allowedSHAFingerprints, [kPrimaryBare]);
     });
 
-    test('rejects a duplicate second fingerprint', () {
-      // Two entries that normalise to the same value are one pin, and give
-      // none of the protection a real successor certificate would.
-      expect(
-        () => CertificatePinningConfig(
-          allowedSHAFingerprints: [kPrimaryFingerprint, kPrimaryBare],
-        ),
-        throwsA(isA<ArgumentError>()),
+    test('collapses entries that normalise to the same pin', () {
+      // Colon-separated and bare spellings of one digest are one pin, so the
+      // config must not report two.
+      final config = CertificatePinningConfig(
+        allowedSHAFingerprints: [kPrimaryFingerprint, kPrimaryBare],
       );
+
+      expect(config.allowedSHAFingerprints, [kPrimaryBare]);
     });
 
     test('rejects a fingerprint that is too short', () {

@@ -190,16 +190,21 @@ compares against, so the openssl output can go in verbatim.
 > when the key pair is unchanged**. This is the one operational commitment
 > pinning asks of you:
 >
-> - Both entries must be certificates that **already exist** and whose renewal
->   you control. A placeholder second entry is not a backup.
+> - Pin the certificate serving today **and its successor** — both already
+>   issued, both under your control. A placeholder second entry is not a
+>   backup.
 > - Ship the successor's fingerprint **before** the current certificate
 >   expires, or every installed app stops connecting on renewal day with no
 >   recovery path short of a store release.
 > - Treat certificate renewal as a release-coordinated event, not a
 >   server-side detail.
 >
-> The package enforces the floor: fewer than two distinct fingerprints throws
-> `ArgumentError` at startup.
+> **One fingerprint is allowed** — a self-signed staging host has no successor
+> to name, and some environments rotate the certificate in lockstep with the
+> app. It is accepted, not recommended: a single pin makes renewal day an
+> outage that only a store release can end. The package enforces just the
+> floor — an empty list throws `ArgumentError` at startup, and entries that
+> normalise to the same digest are collapsed to one pin.
 >
 > *Versions before 2.0.0 pinned the `SubjectPublicKeyInfo` instead, which
 > survived renewal on an unchanged key pair. See the migration note in
@@ -209,7 +214,7 @@ compares against, so the openssl output can go in verbatim.
 
 | Field | Type | Default | Meaning |
 |---|---|---|---|
-| `allowedSHAFingerprints` | `List<String>` | required | Accepted SHA-256 certificate fingerprints (min. 2 distinct) |
+| `allowedSHAFingerprints` | `List<String>` | required | Accepted SHA-256 certificate fingerprints; at least one, de-duplicated. Two (current + successor) is the production shape |
 | `timeout` | `int` | `60` | Connection timeout for the check, in seconds; `0` uses the platform default |
 
 Every rule is checked in the constructor, so a malformed fingerprint fails at

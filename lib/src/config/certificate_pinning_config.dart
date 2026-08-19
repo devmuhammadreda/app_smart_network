@@ -2,9 +2,10 @@ import 'dart:collection';
 
 /// Minimum fingerprints a configuration must carry.
 ///
-/// One fingerprint means the app stops working the moment that certificate is
-/// replaced, with no recovery path short of a store release.
-const int kMinimumFingerprints = 2;
+/// An empty list produces an app that looks pinned but is not, so one pin is
+/// the floor. One is accepted; see [CertificatePinningConfig] for why two is
+/// the safer default in production.
+const int kMinimumFingerprints = 1;
 
 /// Number of hex characters in a SHA-256 fingerprint (32 bytes).
 const int kSha256HexLength = 64;
@@ -39,10 +40,17 @@ final RegExp _hexOnly = RegExp(r'^[0-9A-F]+$');
 /// ## A whole-certificate pin dies with the certificate
 ///
 /// The digest covers the entire certificate, so **renewal breaks the pin even
-/// when the key pair is reused**. Both entries must therefore be certificates
-/// that already exist and whose renewal you control — a placeholder second
-/// entry is not a backup. Ship the successor's fingerprint before the current
-/// certificate expires, or the app stops connecting on renewal day.
+/// when the key pair is reused**. A configuration carrying a single pin stops
+/// connecting the day the server renews, and no server-side fix reaches an
+/// installed app — recovery means a store release and users updating.
+///
+/// One pin is accepted, for the cases where a successor genuinely does not
+/// exist: a self-signed development or staging certificate, or an environment
+/// whose certificate you replace in lockstep with the app. Anything facing
+/// production users wants two — the certificate serving today plus its
+/// successor, both already issued and both under your control. A placeholder
+/// second entry is not a backup, and two entries that normalise to the same
+/// digest are one pin, so they are collapsed to one.
 ///
 /// ## Android and iOS only
 ///
@@ -59,8 +67,8 @@ final RegExp _hexOnly = RegExp(r'^[0-9A-F]+$');
 /// Every rule below is checked at construction rather than on the first
 /// request, so a mistake fails at startup instead of in production.
 class CertificatePinningConfig {
-  /// Accepted certificate fingerprints, normalised to bare uppercase hex and
-  /// unmodifiable.
+  /// Accepted certificate fingerprints, normalised to bare uppercase hex,
+  /// de-duplicated in the order given, and unmodifiable.
   final List<String> allowedSHAFingerprints;
 
   /// Connection timeout for the pinning check, in seconds.
@@ -72,7 +80,8 @@ class CertificatePinningConfig {
   ///
   /// Throws [ArgumentError] when [allowedSHAFingerprints] holds fewer than
   /// [kMinimumFingerprints] distinct values, when any entry is not a
-  /// well-formed SHA-256 hex digest, or when [timeout] is negative.
+  /// well-formed SHA-256 hex digest, or when [timeout] is negative. Repeated
+  /// entries are collapsed rather than rejected.
   CertificatePinningConfig({
     required List<String> allowedSHAFingerprints,
     this.timeout = 60,
@@ -88,7 +97,13 @@ class CertificatePinningConfig {
       );
     }
 
-    if (fingerprints.isEmpty) {
+    // A set keeps insertion order while folding entries that differ only in
+    // separators or case — those are the same pin, not two.
+    final normalized = LinkedHashSet<String>.of(
+      fingerprints.map(_normalize),
+    ).toList();
+
+    if (normalized.length < kMinimumFingerprints) {
       throw ArgumentError.value(
         fingerprints,
         'allowedSHAFingerprints',
@@ -96,20 +111,6 @@ class CertificatePinningConfig {
             'certificatePinning entirely, or add at least '
             '$kMinimumFingerprints — an empty list produces an app that looks '
             'pinned but is not.',
-      );
-    }
-
-    final normalized = fingerprints.map(_normalize).toList();
-
-    if (normalized.toSet().length < kMinimumFingerprints) {
-      throw ArgumentError.value(
-        fingerprints,
-        'allowedSHAFingerprints',
-        'Certificate pinning needs at least $kMinimumFingerprints distinct '
-            'fingerprints, got ${normalized.toSet().length}. The second must '
-            'be the successor certificate: a whole-certificate pin stops '
-            'matching the day the server renews, and with one pin that bricks '
-            'every installed app with no recovery path.',
       );
     }
 

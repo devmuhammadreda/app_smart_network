@@ -63,7 +63,7 @@ void main() {
 
     expect(config.certificatePinning, isA<CertificatePinningConfig>());
     expect(config.certificatePinning!.timeout, 30);
-    expect(kMinimumFingerprints, 2);
+    expect(kMinimumFingerprints, 1);
     expect(kSha256HexLength, 64);
   });
 
